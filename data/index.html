@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Sensor Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .sensor-data, .config-form, .relay-control {
+            margin-bottom: 20px;
+        }
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+        }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #2196F3;
+        }
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+        .countdown {
+            font-size: 18px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .config-form input[type="number"],
+        .config-form input[type="submit"] {
+            margin: 5px 0;
+            padding: 5px;
+        }
+        .nav-links {
+            margin-top: 20px;
+        }
+        .nav-links a {
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ESP32 Sensor Dashboard</h1>
+        <div class="sensor-data">
+            <p>BMP180 Temperature: <span id="temperature">--</span> &deg;C</p>
+            <p>Pressure: <span id="pressure">--</span> hPa</p>
+            <p>Altitude: <span id="altitude">--</span> m</p>
+        </div>
+        <div id="relay-controls">
+            <!-- Relay controls will be dynamically inserted here -->
+        </div>
+        
+        <h2>Configuration</h2>
+        <div class="config-form">
+            <form id="configForm">
+                <label for="sea_level">Sea Level Pressure (hPa):</label>
+                <input type="number" step="0.01" id="sea_level" name="sea_level"><br>
+                
+                <label for="temp_offset">Temperature Offset (&deg;C):</label>
+                <input type="number" step="0.01" id="temp_offset" name="temp_offset"><br>
+                
+                <h3>Relay Timers</h3>
+                <div id="relay-timers">
+                    <!-- Relay timer inputs will be dynamically inserted here -->
+                </div>
+                
+                <input type="submit" value="Update Configuration">
+            </form>
+        </div>
+        
+        <div class="nav-links">
+            <a href="#" onclick="toggleSection('dashboard')">Dashboard</a>
+            <a href="#" onclick="toggleSection('config')">Configuration</a>
+            <a href="/logs" target="_blank">View Logs</a>
+        </div>
+    </div>
+    <!-- Link to external JavaScript file -->
+    <script src="dashboard.js"></script>
+</body>
+</html>
