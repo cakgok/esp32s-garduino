@@ -4,27 +4,40 @@ void SensorManager::sensorTaskFunction(void* pvParameters) {
     SensorManager* manager = static_cast<SensorManager*>(pvParameters);
     while (true) {
         manager->updateSensorData();
-        vTaskDelay(pdMS_TO_TICKS(manager->UPDATE_INTERVAL));
+        uint32_t currentInterval = manager->configManager.getSensorUpdateInterval();
+        vTaskDelay(pdMS_TO_TICKS(currentInterval));
+    }
+}
+
+void SensorManager::setupFloatSwitch(int pin) {
+    floatSwitchPin = pin;
+    pinMode(floatSwitchPin, INPUT_PULLUP);
+}
+
+void SensorManager::setupSensors(int sda_pin, int scl_pin) {
+    Wire.begin(sda_pin, scl_pin);
+    if (!bmp.begin()) {
+        while (1) {}
+    }
+}
+
+void SensorManager::setupMoistureSensors(const std::array<int, 4>& pins) {
+    moistureSensorPins = pins;
+    for (int pin : moistureSensorPins) {
+        pinMode(pin, INPUT);
     }
 }
 
 void SensorManager::updateSensorData() {
-    unsigned long currentTime = millis();
     std::lock_guard<std::mutex> lock(dataMutex);
 
     for (int i = 0; i < 4; i++) {
         data.moisture[i] = readMoistureSensor(moistureSensorPins[i]);
     }
-    // Use the latest temperature offset from ConfigManager
     data.temperature = bmp.readTemperature() + configManager.getTemperatureOffset();
     data.pressure = bmp.readPressure() / 100.0F;
     data.waterLevel = checkWaterLevel();
-    data.lastUpdateTime = currentTime;
-
-    // Use the latest telemetry interval from ConfigManager
-    vTaskDelay(pdMS_TO_TICKS(configManager.getTelemetryInterval()));
 }
-
 
 SensorData SensorManager::getSensorData() {
     std::lock_guard<std::mutex> lock(dataMutex);
@@ -36,10 +49,10 @@ float SensorManager::readMoistureSensor(int sensorPin) {
     float sum = 0;
     for (int i = 0; i < SAMPLES; i++) {
         sum += analogRead(sensorPin);
-        vTaskDelay(pdMS_TO_TICKS(10)); // Short delay between readings
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
     float average = sum / SAMPLES;
-    return map(average, 0, 4095, 0, 100);  // Map to 0-100%
+    return map(average, 0, 4095, 0, 100);
 }
 
 bool SensorManager::checkWaterLevel() {

@@ -2,9 +2,9 @@
 #define ESP_UTILS_H
 
 #include "ESPLogger.h"
-#include "OTASetup.h"
+#include "ESPOTASetup.h"
 #include "ESPTelemetry.h"
-#include "TimeSetup.h"
+#include "ESPTimeSetup.h"
 #include "MQTTManager.h"
 // Add other utility headers here as needed
 

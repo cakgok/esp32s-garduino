@@ -25,6 +25,8 @@ namespace ConfigConstants {
     constexpr float MAX_THRESHOLD = 50.0f;
     constexpr uint32_t MIN_WATERING_INTERVAL = 3600000;   // 1 hour
     constexpr uint32_t MAX_WATERING_INTERVAL = 432000000; // 120 hours
+    constexpr uint32_t MIN_SENSOR_PUBLISH_INTERVAL = 10000;
+    constexpr uint32_t MAX_SENSOR_PUBLISH_INTERVAL = 600000;
 
     // Default values
     constexpr float DEFAULT_TEMP_OFFSET = 0.0f;
@@ -34,6 +36,7 @@ namespace ConfigConstants {
     constexpr uint32_t DEFAULT_WATERING_INTERVAL = 86400000; // 24 hours
     constexpr uint32_t DEFAULT_SENSOR_UPDATE_INTERVAL = 10000; // 10 seconds
     constexpr uint32_t DEFAULT_LCD_UPDATE_INTERVAL = 5000; // 5 seconds
+    constexpr uint32_t DEFAULT_SENSOR_PUBLISH_INTERVAL = 100000; //  seconds
 }
 
 class ConfigManager {
@@ -47,11 +50,12 @@ public:
     };
 
     struct CachedConfig {
-        float temperatureOffset;
-        uint32_t telemetryInterval;
-        uint32_t sensorUpdateInterval;
-        uint32_t lcdUpdateInterval;
-        std::array<SensorConfig, RELAY_COUNT> sensorConfigs;
+        std::optional<float> temperatureOffset;
+        std::optional<uint32_t> telemetryInterval;
+        std::optional<uint32_t> sensorUpdateInterval;
+        std::optional<uint32_t> sensorPublishInterval;
+        std::optional<uint32_t> lcdUpdateInterval;
+        std::array<std::optional<SensorConfig>, RELAY_COUNT> sensorConfigs;
     };
 
     using ObserverCallback = std::function<void(const std::string&)>;
@@ -70,49 +74,66 @@ public:
         preferences.end();
     }
 
+    // Endpoint for saving changes from the web interface
+    bool updateAndSaveAll(
+        std::optional<float> tempOffset,
+        std::optional<uint32_t> telemetryInterval,
+        std::optional<uint32_t> sensorUpdateInterval,
+        std::optional<uint32_t> lcdUpdateInterval,
+        std::optional<uint32_t> sensorPublishInterval,
+        const std::array<std::optional<SensorConfig>, RELAY_COUNT>& sensorConfigs) 
+    {
+        bool isValid = true;
+        
+        if (tempOffset) isValid &= setTemperatureOffset(*tempOffset);
+        if (telemetryInterval) isValid &= setTelemetryInterval(*telemetryInterval);
+        if (sensorUpdateInterval) isValid &= setSensorUpdateInterval(*sensorUpdateInterval);
+        if (lcdUpdateInterval) isValid &= setLCDUpdateInterval(*lcdUpdateInterval);
+        if (sensorPublishInterval) isValid &= setSensorPublishInterval(*sensorPublishInterval);
+
+        for (size_t i = 0; i < RELAY_COUNT; i++) {
+            if (sensorConfigs[i]) isValid &= setSensorConfig(i, *sensorConfigs[i]);
+        }
+        
+        if (isValid) {
+            return saveChanges();
+        }
+        
+        return false;
+    }
+
     bool setLCDUpdateInterval(uint32_t interval) {
-        if (interval >= ConfigConstants::MIN_LCD_INTERVAL && interval <= ConfigConstants::MAX_LCD_INTERVAL) {
-            if (cachedConfig.lcdUpdateInterval != interval) {
-                cachedConfig.lcdUpdateInterval = interval;
-                dirtyFlags.lcdUpdateInterval = true;
-                notifyObservers("lcdUpdateInterval");
-            }
+        if (isInRange(interval, ConfigConstants::MIN_LCD_INTERVAL, ConfigConstants::MAX_LCD_INTERVAL)) {
+            cachedConfig.lcdUpdateInterval = interval;
+            notifyObservers("lcdUpdateInterval");
             return true;
         }
         return false;
     }
 
     bool setSensorUpdateInterval(uint32_t interval) {
-        if (interval >= ConfigConstants::MIN_SENSORUPDATE_INTERVAL && interval <= ConfigConstants::MAX_SENSORUPDATE_INTERVAL) {
-            if (cachedConfig.sensorUpdateInterval != interval) {
+        if (isInRange(interval, ConfigConstants::MIN_SENSORUPDATE_INTERVAL, ConfigConstants::MAX_SENSORUPDATE_INTERVAL)) {
                 cachedConfig.sensorUpdateInterval = interval;
-                dirtyFlags.sensorUpdateInterval = true;
-                notifyObservers("sensorUpdateInterval"); 
-            }
+                notifyObservers("sensorUpdateInterval");
+                return true;
             return true;
         }
         return false;
     }
 
     bool setTemperatureOffset(float offset) {
-        if (offset >= ConfigConstants::MIN_TEMP_OFFSET && offset <= ConfigConstants::MAX_TEMP_OFFSET) {
-            if (cachedConfig.temperatureOffset != offset) {
-                cachedConfig.temperatureOffset = offset;
-                dirtyFlags.temperatureOffset = true;
-                notifyObservers("temperatureOffset");
-            }
+        if (isInRange(offset, ConfigConstants::MIN_TEMP_OFFSET, ConfigConstants::MAX_TEMP_OFFSET)) {
+            cachedConfig.temperatureOffset = offset;
+            notifyObservers("temperatureOffset");
             return true;
         }
         return false;
     }
 
     bool setTelemetryInterval(uint32_t interval) {
-        if (interval >= ConfigConstants::MIN_TELEMETRY_INTERVAL && interval <= ConfigConstants::MAX_TELEMETRY_INTERVAL) {
-            if (cachedConfig.telemetryInterval != interval) {
-                cachedConfig.telemetryInterval = interval;
-                dirtyFlags.telemetryInterval = true;
-                notifyObservers("telemetryInterval");
-            }
+        if (isInRange(interval, ConfigConstants::MIN_TELEMETRY_INTERVAL, ConfigConstants::MAX_TELEMETRY_INTERVAL)) {
+            cachedConfig.telemetryInterval = interval;
+            notifyObservers("telemetryInterval");
             return true;
         }
         return false;
@@ -120,62 +141,59 @@ public:
 
     bool setSensorConfig(size_t index, const SensorConfig& config) {
         if (index < RELAY_COUNT &&
-            config.threshold >= ConfigConstants::MIN_THRESHOLD && config.threshold <= ConfigConstants::MAX_THRESHOLD &&
-            config.activationPeriod >= ConfigConstants::MIN_ACTIVATION_PERIOD && config.activationPeriod <= ConfigConstants::MAX_ACTIVATION_PERIOD &&
-            config.wateringInterval >= ConfigConstants::MIN_WATERING_INTERVAL && config.wateringInterval <= ConfigConstants::MAX_WATERING_INTERVAL) {
+            isInRange(config.threshold, ConfigConstants::MIN_THRESHOLD, ConfigConstants::MAX_THRESHOLD) &&
+            isInRange(config.activationPeriod, ConfigConstants::MIN_ACTIVATION_PERIOD, ConfigConstants::MAX_ACTIVATION_PERIOD) &&
+            isInRange(config.wateringInterval, ConfigConstants::MIN_WATERING_INTERVAL, ConfigConstants::MAX_WATERING_INTERVAL)) {
             cachedConfig.sensorConfigs[index] = config;
-            dirtyFlags.sensorConfigs[index] = true;
             notifyObservers("sensorConfig_" + std::to_string(index));
             return true;
         }
         return false;
-    } 
-    
-    // Specific Getters
-    float getTemperatureOffset() const { return cachedConfig.temperatureOffset; }
-    float getTelemetryInterval() const { return cachedConfig.telemetryInterval; }
-    float getSensorUpdateInterval() const { return cachedConfig.sensorUpdateInterval; }
-    float getLCDUpdateInterval() const { return cachedConfig.lcdUpdateInterval; }
-    const SensorConfig& getSensorConfig(size_t index) const { return cachedConfig.sensorConfigs[index]; }
-    
-    // Endpoint for saving changes from the web interface
-    bool updateAndSaveAll(
-        bool updateTempOffset, float tempOffset,
-        bool updateTelemetryInterval, uint32_t telemetryInterval,
-        bool updateSensorUpdateInterval, uint32_t sensorUpdateInterval,
-        const std::array<bool, RELAY_COUNT>& updateSensorConfigs,
-        const std::array<SensorConfig, RELAY_COUNT>& sensorConfigs) 
-    {
-        bool isValid = true;
-        bool anyChange = false;
-        
-        if (updateTempOffset) {
-            isValid &= setTemperatureOffset(tempOffset);
-            anyChange = true;
-        }
-        
-        if (updateTelemetryInterval) {
-            isValid &= setTelemetryInterval(telemetryInterval);
-            anyChange = true;
-        }
-        
-        if (updateSensorUpdateInterval) {
-            isValid &= setSensorUpdateInterval(sensorUpdateInterval);
-            anyChange = true;
-        }
+    }
 
-        for (size_t i = 0; i < RELAY_COUNT; i++) {
-            if (updateSensorConfigs[i]) {
-                isValid &= setSensorConfig(i, sensorConfigs[i]);
-                anyChange = true;
-            }
+    bool setSensorPublishInterval(uint32_t interval) {
+        if (isInRange(interval, ConfigConstants::MIN_SENSOR_PUBLISH_INTERVAL, ConfigConstants::MAX_SENSOR_PUBLISH_INTERVAL)) {
+            cachedConfig.sensorPublishInterval = interval;
+            notifyObservers("sensorPublishInterval");
+            return true;
         }
-        // Only save if there were changes and all updates are valid
-        if (anyChange && isValid) {
-            return saveChanges();
+        return false;
+    }
+
+    // Specific Getters
+    float getTemperatureOffset() const { 
+        return cachedConfig.temperatureOffset.value_or(ConfigConstants::DEFAULT_TEMP_OFFSET);
+    }
+
+    uint32_t getTelemetryInterval() const { 
+        return cachedConfig.telemetryInterval.value_or(ConfigConstants::DEFAULT_TELEMETRY_INTERVAL);
+    }
+
+    uint32_t getSensorUpdateInterval() const { 
+        return cachedConfig.sensorUpdateInterval.value_or(ConfigConstants::DEFAULT_SENSOR_UPDATE_INTERVAL);
+    }
+
+    uint32_t getLCDUpdateInterval() const { 
+        return cachedConfig.lcdUpdateInterval.value_or(ConfigConstants::DEFAULT_LCD_UPDATE_INTERVAL);
+    }
+
+    uint32_t getSensorPublishInterval() const {
+        return cachedConfig.sensorPublishInterval.value_or(ConfigConstants::DEFAULT_SENSOR_PUBLISH_INTERVAL);
+    }
+
+    SensorConfig getSensorConfig(size_t index) const { 
+        if (index < RELAY_COUNT) {
+            return cachedConfig.sensorConfigs[index].value_or(SensorConfig{
+                ConfigConstants::DEFAULT_THRESHOLD,
+                ConfigConstants::DEFAULT_ACTIVATION_PERIOD,
+                ConfigConstants::DEFAULT_WATERING_INTERVAL
+            });
         }
-        
-        return isValid;
+        return SensorConfig{
+            ConfigConstants::DEFAULT_THRESHOLD,
+            ConfigConstants::DEFAULT_ACTIVATION_PERIOD,
+            ConfigConstants::DEFAULT_WATERING_INTERVAL
+        };
     }
 
     // Observer pattern methods
@@ -183,31 +201,29 @@ public:
         observers[key].push_back(callback);
     }
 
-    void removeObserver(const std::string& key, ObserverCallback callback) {
+    void removeObserver(const std::string& key, const ObserverCallback& callback) {
         auto it = observers.find(key);
         if (it != observers.end()) {
             auto& callbacks = it->second;
             callbacks.erase(std::remove_if(callbacks.begin(), callbacks.end(),
                 [&callback](const ObserverCallback& cb) {
-                    return cb.target_type() == callback.target_type();
+                    return &cb == &callback;
                 }), callbacks.end());
         }
     }
 
     bool resetToDefault() {
-        CachedConfig defaultConfig;
-        defaultConfig.temperatureOffset = ConfigConstants::DEFAULT_TEMP_OFFSET;
-        defaultConfig.telemetryInterval = ConfigConstants::DEFAULT_TELEMETRY_INTERVAL;
-        defaultConfig.sensorUpdateInterval = ConfigConstants::DEFAULT_SENSOR_UPDATE_INTERVAL;
-
-        for (auto& sensorConfig : defaultConfig.sensorConfigs) {
-            sensorConfig.threshold = ConfigConstants::DEFAULT_THRESHOLD;
-            sensorConfig.activationPeriod = ConfigConstants::DEFAULT_ACTIVATION_PERIOD;
-            sensorConfig.wateringInterval = ConfigConstants::DEFAULT_WATERING_INTERVAL;
+        cachedConfig = CachedConfig();
+        bool success = saveChanges();
+        if (success) {
+            notifyObservers("all");
         }
-
-        cachedConfig = defaultConfig;
-        return saveChanges();
+        return success;
+    }
+    
+    // Provide read-only access to cachedConfig
+    const CachedConfig& getCachedConfig() const {
+        return cachedConfig;
     }
 
 private:
@@ -215,19 +231,12 @@ private:
     CachedConfig cachedConfig;
     std::map<std::string, std::vector<ObserverCallback>> observers;
 
-    struct DirtyFlags {
-        bool temperatureOffset = false;
-        bool telemetryInterval = false;
-        bool sensorUpdateInterval = false;
-        bool lcdUpdateInterval = false;
-        std::array<bool, RELAY_COUNT> sensorConfigs = {false};
-    } dirtyFlags;
-
     void loadCachedValues() {
         cachedConfig.temperatureOffset = preferences.getFloat("tempOffset", ConfigConstants::DEFAULT_TEMP_OFFSET);
         cachedConfig.telemetryInterval = preferences.getULong("telemetryInterval", ConfigConstants::DEFAULT_TELEMETRY_INTERVAL);
         cachedConfig.sensorUpdateInterval = preferences.getULong("sensorUpdateInterval", ConfigConstants::DEFAULT_SENSOR_UPDATE_INTERVAL);
         cachedConfig.lcdUpdateInterval = preferences.getULong("lcdUpdateInterval", ConfigConstants::DEFAULT_LCD_UPDATE_INTERVAL);
+        cachedConfig.sensorPublishInterval = preferences.getULong("sensorPublishInterval", ConfigConstants::DEFAULT_SENSOR_PUBLISH_INTERVAL);
         for (size_t i = 0; i < RELAY_COUNT; i++) {
             loadSensorConfig(i);
         }
@@ -235,52 +244,64 @@ private:
 
     void loadSensorConfig(size_t index) {
         std::string prefix = "sensor" + std::to_string(index) + "_";
-        cachedConfig.sensorConfigs[index].threshold = preferences.getFloat((prefix + "threshold").c_str(), ConfigConstants::DEFAULT_THRESHOLD);
-        cachedConfig.sensorConfigs[index].activationPeriod = preferences.getULong((prefix + "activationPeriod").c_str(), ConfigConstants::DEFAULT_ACTIVATION_PERIOD);
-        cachedConfig.sensorConfigs[index].wateringInterval = preferences.getULong((prefix + "wateringInterval").c_str(), ConfigConstants::DEFAULT_WATERING_INTERVAL);
-        cachedConfig.sensorConfigs[index].wateringInterval = preferences.getULong((prefix + "wateringInterval").c_str(), ConfigConstants::DEFAULT_LCD_UPDATE_INTERVAL);
+        SensorConfig config;
+        config.threshold = preferences.getFloat((prefix + "threshold").c_str(), ConfigConstants::DEFAULT_THRESHOLD);
+        config.activationPeriod = preferences.getULong((prefix + "activationPeriod").c_str(), ConfigConstants::DEFAULT_ACTIVATION_PERIOD);
+        config.wateringInterval = preferences.getULong((prefix + "wateringInterval").c_str(), ConfigConstants::DEFAULT_WATERING_INTERVAL);
+        cachedConfig.sensorConfigs[index] = config;
     }
 
-
-    bool saveSensorConfig(size_t index) {
+     bool saveSensorConfig(size_t index, const SensorConfig& config) {
         std::string prefix = "sensor" + std::to_string(index) + "_";
         bool success = true;
-        success &= preferences.putFloat((prefix + "threshold").c_str(), cachedConfig.sensorConfigs[index].threshold);
-        success &= preferences.putULong((prefix + "activationPeriod").c_str(), cachedConfig.sensorConfigs[index].activationPeriod);
-        success &= preferences.putULong((prefix + "wateringInterval").c_str(), cachedConfig.sensorConfigs[index].wateringInterval);
+        success &= preferences.putFloat((prefix + "threshold").c_str(), config.threshold);
+        success &= preferences.putULong((prefix + "activationPeriod").c_str(), config.activationPeriod);
+        success &= preferences.putULong((prefix + "wateringInterval").c_str(), config.wateringInterval);
         return success;
     }
 
+
     bool saveChanges() {
         bool success = true;
-        if (dirtyFlags.temperatureOffset) {
-            success &= preferences.putFloat("tempOffset", cachedConfig.temperatureOffset);
-            dirtyFlags.temperatureOffset = false;
+        if (cachedConfig.temperatureOffset) {
+            success &= preferences.putFloat("tempOffset", *cachedConfig.temperatureOffset);
         }
-        if (dirtyFlags.telemetryInterval) {
-            success &= preferences.putULong("telemetryInterval", cachedConfig.telemetryInterval);
-            dirtyFlags.telemetryInterval = false;
+        if (cachedConfig.telemetryInterval) {
+            success &= preferences.putULong("telemetryInterval", *cachedConfig.telemetryInterval);
         }
-        if (dirtyFlags.sensorUpdateInterval) {
-            success &= preferences.putULong("sensorUpdateInterval", cachedConfig.sensorUpdateInterval);
-            dirtyFlags.sensorUpdateInterval = false;
+        if (cachedConfig.sensorUpdateInterval) {
+            success &= preferences.putULong("sensorUpdateInterval", *cachedConfig.sensorUpdateInterval);
         }
-        if (dirtyFlags.lcdUpdateInterval) {
-            success &= preferences.putULong("lcdUpdateInterval", cachedConfig.lcdUpdateInterval);
-            dirtyFlags.lcdUpdateInterval = false;
+        if (cachedConfig.lcdUpdateInterval) {
+            success &= preferences.putULong("lcdUpdateInterval", *cachedConfig.lcdUpdateInterval);
         }
         
+        if (cachedConfig.sensorPublishInterval) {
+            success &= preferences.putULong("sensorPublishInterval", *cachedConfig.sensorPublishInterval);
+        }
+
         for (size_t i = 0; i < RELAY_COUNT; i++) {
-            if (dirtyFlags.sensorConfigs[i]) {
-                success &= saveSensorConfig(i);
-                dirtyFlags.sensorConfigs[i] = false;
+            if (cachedConfig.sensorConfigs[i]) {
+                success &= saveSensorConfig(i, *cachedConfig.sensorConfigs[i]);
             }
+        }
+
+        if (success) {
+            cachedConfig = CachedConfig();  // Clear all optionals after successful save
+            notifyObservers("all");  // Notify that all values have been saved
         }
         return success;
     }
 
     void notifyObservers(const std::string& key) {
         auto it = observers.find(key);
+        if (it != observers.end()) {
+            for (const auto& callback : it->second) {
+                callback(key);
+            }
+        }
+        // Also notify "all" observers
+        it = observers.find("all");
         if (it != observers.end()) {
             for (const auto& callback : it->second) {
                 callback(key);

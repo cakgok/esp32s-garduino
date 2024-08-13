@@ -1,14 +1,12 @@
 #ifndef ESP_TIME_SETUP_H
 #define ESP_TIME_SETUP_H
 
-#include <Arduino.h>
 #include <time.h>
 #include "ESPLogger.h"
 
-template<size_t BUFFER_SIZE = 50>
 class ESPTimeSetup {
 public:
-    ESPTimeSetup(ESPLogger<BUFFER_SIZE>& logger, 
+    ESPTimeSetup(ESPLogger* logger = nullptr, 
                  const char* ntpServer = "pool.ntp.org", 
                  long gmtOffset_sec = 0, 
                  int daylightOffset_sec = 3600)
@@ -22,10 +20,14 @@ public:
         
         struct tm timeinfo;
         if(!getLocalTime(&timeinfo)){
-            logger.log(LogLevel::ERROR, "Failed to obtain time");
+            if (logger) {
+                logger->log(LogLevel::ERROR, "Failed to obtain time");
+            }
             return;
         }
-        logger.log(LogLevel::INFO, "Got time from NTP");
+        if (logger) {
+            logger->log(LogLevel::INFO, "Got time from NTP");
+        }
     }
 
     void setNTPServer(const char* server) {
@@ -38,7 +40,7 @@ public:
     }
 
 private:
-    ESPLogger<BUFFER_SIZE>& logger;
+    ESPLogger* logger;
     const char* ntpServer;
     long gmtOffset_sec;
     int daylightOffset_sec;

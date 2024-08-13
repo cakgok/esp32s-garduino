@@ -4,39 +4,33 @@
 #include <mutex>
 #include <array>
 #include <Adafruit_BMP085.h>
-#include "ConfigManager.h"  // Include ConfigManager
+#include <LiquidCrystal_I2C.h>
+#include "ConfigManager.h"
+#include <Wire.h>
 
 struct SensorData {
     std::array<float, 4> moisture;
     float temperature;
     float pressure;
     bool waterLevel;
-    unsigned long lastUpdateTime;
 };
 
 class SensorManager {
 private:
     SensorData data;
     std::mutex dataMutex;
-    const unsigned long UPDATE_INTERVAL = 10000; // 10 seconds
-
-    Adafruit_BMP085& bmp;
-    const std::array<int, 4>& moistureSensorPins;
-    const int floatSwitchPin;
-    ConfigManager& configManager;  // Reference to ConfigManager
+    
+    Adafruit_BMP085 bmp;
+    std::array<int, 4> moistureSensorPins;
+    int floatSwitchPin;
+    ConfigManager& configManager;
 
     static void sensorTaskFunction(void* pvParameters);
     TaskHandle_t sensorTaskHandle;
 
 public:
-    SensorManager(Adafruit_BMP085& bmp, 
-                  const std::array<int, 4>& moistureSensorPins, 
-                  int floatSwitchPin,
-                  ConfigManager& configManager)
-        : bmp(bmp), 
-          moistureSensorPins(moistureSensorPins), 
-          floatSwitchPin(floatSwitchPin),
-          configManager(configManager) {
+    SensorManager(ConfigManager& configManager)
+        : configManager(configManager) {
         xTaskCreatePinnedToCore(
             sensorTaskFunction,
             "SensorTask",
@@ -48,6 +42,10 @@ public:
         );
     }
 
+    void setupFloatSwitch(int pin);
+    void setupSensors(int sda_pin, int scl_pin);
+    void setupMoistureSensors(const std::array<int, 4>& pins);
+    void initLCD();
     void updateSensorData();
     SensorData getSensorData();
 
