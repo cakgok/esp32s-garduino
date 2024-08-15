@@ -36,7 +36,7 @@ namespace ConfigConstants {
     constexpr uint32_t DEFAULT_WATERING_INTERVAL = 86400000; // 24 hours
     constexpr uint32_t DEFAULT_SENSOR_UPDATE_INTERVAL = 10000; // 10 seconds
     constexpr uint32_t DEFAULT_LCD_UPDATE_INTERVAL = 5000; // 5 seconds
-    constexpr uint32_t DEFAULT_SENSOR_PUBLISH_INTERVAL = 100000; //  seconds
+    constexpr uint32_t DEFAULT_SENSOR_PUBLISH_INTERVAL = 30000; // 30 seconds
 }
 
 class ConfigManager {

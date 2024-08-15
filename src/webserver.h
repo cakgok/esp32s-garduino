@@ -8,26 +8,45 @@
 #include "ESPLogger.h"
 #include "SensorManager.h"
 #include "ConfigManager.h"
-
-extern SensorManager sensorManager;
-extern ConfigManager configManager;
+#include "RelayManager.h"
+#include "globals.h"
+#include <vector>
 
 class ESP32WebServer {
 private:
     AsyncWebServer server;
     int serverPort;
     ESPLogger& logger;
+    RelayManager& relayManager;
+    SensorManager& sensorManager; 
+    ConfigManager& configManager; 
+    AsyncEventSource* events;
 
     void setupRoutes() {
         // Serve static files
         server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
+        server.serveStatic("/index.css", LittleFS, "/index.css");
+        server.serveStatic("/index.js", LittleFS, "/index.js");
+
+        server.serveStatic("/config.html", LittleFS, "/config.html");
+        server.serveStatic("/config.css", LittleFS, "/config.css");
+        server.serveStatic("/config.js", LittleFS, "/config.js");
+
+        server.serveStatic("/log.html", LittleFS, "/log.html");
+        server.serveStatic("/log.css", LittleFS, "/log.css");
+        server.serveStatic("/log.js", LittleFS, "/log.js");
 
         // API endpoints
         server.on("/api/logs", HTTP_GET, std::bind(&ESP32WebServer::handleGetLogs, this, std::placeholders::_1));
         server.on("/api/config", HTTP_GET, std::bind(&ESP32WebServer::handleGetConfig, this, std::placeholders::_1));
         server.on("/api/config", HTTP_POST, std::bind(&ESP32WebServer::handlePostConfig, this, std::placeholders::_1));
         server.on("/api/sensorData", HTTP_GET, std::bind(&ESP32WebServer::handleGetSensorData, this, std::placeholders::_1));
-        //server.on("/api/relay", HTTP_POST, std::bind(&ESP32WebServer::handlePostRelay, this, std::placeholders::_1));
+        server.on("/api/relay", HTTP_POST, std::bind(&ESP32WebServer::handlePostRelay, this, std::placeholders::_1));
+        server.on("/api/resetToDefault", HTTP_GET, std::bind(&ESP32WebServer::handleGetDefaults, this, std::placeholders::_1));
+
+                // Add SSE route
+        events = new AsyncEventSource("/api/events");
+        server.addHandler(events);
     }
 
     void handleGetLogs(AsyncWebServerRequest *request) {
@@ -48,10 +67,11 @@ private:
         doc["telemetryInterval"] = configManager.getTelemetryInterval();
         doc["sensorUpdateInterval"] = configManager.getSensorUpdateInterval();
         doc["lcdUpdateInterval"] = configManager.getLCDUpdateInterval();
-
-        JsonArray sensorConfigs = doc.createNestedArray("sensorConfigs");
-        for (size_t i = 0; i < ConfigManager::RELAY_COUNT; i++) {
-            JsonObject sensorConfig = sensorConfigs.createNestedObject();
+        doc["sensorPublishInterval"] = configManager.getSensorPublishInterval();
+    
+        JsonArray sensorConfigs = doc["sensorConfigs"].to<JsonArray>();
+        for (size_t i = 0; i < RELAY_COUNT; i++) {
+            JsonObject sensorConfig = sensorConfigs.add<JsonObject>();
             const auto& config = configManager.getSensorConfig(i);
             sensorConfig["threshold"] = config.threshold;
             sensorConfig["activationPeriod"] = config.activationPeriod;
@@ -81,11 +101,12 @@ private:
             if (doc.containsKey("telemetryInterval")) newConfig.telemetryInterval = doc["telemetryInterval"].as<uint32_t>();
             if (doc.containsKey("sensorUpdateInterval")) newConfig.sensorUpdateInterval = doc["sensorUpdateInterval"].as<uint32_t>();
             if (doc.containsKey("lcdUpdateInterval")) newConfig.lcdUpdateInterval = doc["lcdUpdateInterval"].as<uint32_t>();
+            if (doc.containsKey("sensorPublishInterval")) newConfig.sensorPublishInterval = doc["sensorPublishInterval"].as<uint32_t>();
 
             // Parse sensor configs
             if (doc.containsKey("sensorConfigs")) {
                 JsonArray sensorConfigs = doc["sensorConfigs"];
-                for (size_t i = 0; i < std::min(static_cast<size_t>(sensorConfigs.size()), ConfigManager::RELAY_COUNT); i++) {
+                for (size_t i = 0; i < std::min(sensorConfigs.size(), static_cast<size_t>(RELAY_COUNT)); i++) {
                     JsonObject sensorConfig = sensorConfigs[i];
                     newConfig.sensorConfigs[i] = ConfigManager::SensorConfig{
                         sensorConfig["threshold"].as<float>(),
@@ -119,42 +140,118 @@ private:
     void handleGetSensorData(AsyncWebServerRequest *request) {
         AsyncResponseStream *response = request->beginResponseStream("application/json");
         JsonDocument doc;
+        
+        // Get all sensor data using the existing function
+        SensorData sensorData = sensorManager.getSensorData();
 
-        // Assuming SensorManager has a method to get all sensor data
-        const auto& sensorData = sensorManager.getSensorData();
-        // Add sensor data to the JSON document
+        // Populate doc with sensor data
+        JsonArray plants = doc["plants"].to<JsonArray>();
+        for (int i = 0; i < 4; i++) {
+            JsonObject plant = plants.add<JsonObject>();
+            plant["moisture"] = sensorData.moisture[i];
+        }
 
+        doc["temperature"] = sensorData.temperature;
+        doc["pressure"] = sensorData.pressure;
+        doc["waterLevel"] = sensorData.waterLevel;
+
+         // Add relay states
+        JsonArray relays = doc["relays"].to<JsonArray>();
+        for (int i = 0; i < RELAY_COUNT; i++) {
+            JsonObject relay = relays.add<JsonObject>();
+            relay["active"] = relayManager.isRelayActive(i);
+            if (relayManager.isRelayActive(i)) {
+                relay["activationTime"] = configManager.getSensorConfig(i).activationPeriod;
+            }
+        }
         serializeJson(doc, *response);
+        logger.log("Sending sensor data to client ");
         request->send(response);
     }
 
-    // void handlePostRelay(AsyncWebServerRequest *request) {
-    //     if (request->hasParam("relay", true) && request->hasParam("state", true)) {
-    //         int relay = request->getParam("relay", true)->value().toInt();
-    //         bool state = request->getParam("state", true)->value() == "true";
-            
-    //         if (sensorManager.setRelayState(relay, state)) {
-    //             logger.log(LogLevel::INFO, "Relay %d set to %s", relay, state ? "ON" : "OFF");
-    //             request->send(200, "text/plain", "Relay state updated");
-    //         } else {
-    //             logger.log(LogLevel::ERROR, "Failed to set relay %d state", relay);
-    //             request->send(500, "text/plain", "Failed to set relay state");
-    //         }
-    //     } else {
-    //         request->send(400, "text/plain", "Missing relay or state parameter");
-    //     }
-    // }
+    void handlePostRelay(AsyncWebServerRequest *request) {
+        if (request->hasParam("relay", true) && request->hasParam("active", true)) {
+            int relayIndex = request->getParam("relay", true)->value().toInt();
+            bool active = request->getParam("active", true)->value() == "true";
+
+            if (relayIndex >= 0 && relayIndex < RELAY_COUNT) {
+                if (active) {
+                    relayManager.activateRelay(relayIndex);
+                } else {
+                    relayManager.deactivateRelay(relayIndex);
+                }
+
+                AsyncResponseStream *response = request->beginResponseStream("application/json");
+                JsonDocument doc;
+                doc["success"] = true;
+                doc["message"] = active ? "Relay activated" : "Relay deactivated";
+                doc["relayIndex"] = relayIndex;
+                serializeJson(doc, *response);
+                request->send(response);
+
+                // Send update to all connected clients
+                sendUpdate();
+            } else {
+                request->send(400, "text/plain", "Invalid relay index");
+            }
+        } else {
+            request->send(400, "text/plain", "Missing parameters");
+        }
+    }
+
+    void handleGetDefaults(AsyncWebServerRequest *request) {
+        //get deafults from configManager.getDefaultConfig();
+    }
 
 public:
-    ESP32WebServer(int port, ESPLogger& logger)
-        : server(port), logger(logger), serverPort(port) {
+    ESP32WebServer(int port, ESPLogger& logger, RelayManager& relayManager, SensorManager& sensorManager, ConfigManager& configManager)
+        : server(port), logger(logger), relayManager(relayManager), serverPort(port), sensorManager(sensorManager), configManager(configManager) {
         setupRoutes();
     }
+
 
     void begin() {
         server.begin();
         logger.log(LogLevel::INFO, "Async HTTP server started on port %d", serverPort);
     }
+
+    void sendUpdate() {
+        JsonDocument doc;
+        // Get all sensor data using the existing function
+        SensorData sensorData = sensorManager.getSensorData();
+
+        // Populate doc with sensor data (similar to handleGetAllSensorData)
+        JsonArray plants = doc["plants"].to<JsonArray>();
+        for (int i = 0; i < 4; i++) {
+            JsonObject plant = plants.add<JsonObject>();
+            plant["moisture"] = sensorData.moisture[i];
+        }
+
+        doc["temperature"] = sensorData.temperature;
+        doc["pressure"] = sensorData.pressure;
+        doc["waterLevel"] = sensorData.waterLevel;
+
+        // Add relay states
+        JsonArray relays = doc["relays"].to<JsonArray>();
+        for (int i = 0; i < RELAY_COUNT; i++) {
+            JsonObject relay = relays.add<JsonObject>();
+            relay["active"] = relayManager.isRelayActive(i);
+            if (relayManager.isRelayActive(i)) {
+                relay["activationTime"] = configManager.getSensorConfig(i).activationPeriod;
+            }
+        }
+
+        String output;
+        serializeJson(doc, output);
+        // Send update to all connected SSE clients
+        events->send(output.c_str(), "update", millis());
+    }
+
+    // Call this method whenever sensor data or relay states change
+    void notifyClients() {
+        sendUpdate();
+    }
+
 };
 
 #endif // ESP32_WEB_SERVER_H

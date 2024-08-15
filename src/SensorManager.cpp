@@ -9,6 +9,21 @@ void SensorManager::sensorTaskFunction(void* pvParameters) {
     }
 }
 
+void SensorManager::startSensorTask() {
+    if (sensorTaskHandle == nullptr) {
+        xTaskCreatePinnedToCore(
+            sensorTaskFunction,
+            "SensorTask",
+            4096,
+            this,
+            1,
+            &sensorTaskHandle,
+            1
+        );
+    }
+}
+
+
 void SensorManager::setupFloatSwitch(int pin) {
     floatSwitchPin = pin;
     pinMode(floatSwitchPin, INPUT_PULLUP);

@@ -3,122 +3,125 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32 Sensor Dashboard</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background-color: #f0f0f0;
-        }
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            background-color: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        h1, h2 {
-            color: #333;
-        }
-        .sensor-data, .config-form, .relay-control {
-            margin-bottom: 20px;
-        }
-        .switch {
-            position: relative;
-            display: inline-block;
-            width: 60px;
-            height: 34px;
-        }
-        .switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-        .slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: #ccc;
-            transition: .4s;
-            border-radius: 34px;
-        }
-        .slider:before {
-            position: absolute;
-            content: "";
-            height: 26px;
-            width: 26px;
-            left: 4px;
-            bottom: 4px;
-            background-color: white;
-            transition: .4s;
-            border-radius: 50%;
-        }
-        input:checked + .slider {
-            background-color: #2196F3;
-        }
-        input:checked + .slider:before {
-            transform: translateX(26px);
-        }
-        .countdown {
-            font-size: 18px;
-            font-weight: bold;
-            margin-left: 10px;
-        }
-        .config-form input[type="number"],
-        .config-form input[type="submit"] {
-            margin: 5px 0;
-            padding: 5px;
-        }
-        .nav-links {
-            margin-top: 20px;
-        }
-        .nav-links a {
-            margin-right: 10px;
-        }
-    </style>
+    <link rel="stylesheet" href="index.css">
+    <title>Dashboard</title>
 </head>
 <body>
-    <div class="container">
-        <h1>ESP32 Sensor Dashboard</h1>
-        <div class="sensor-data">
-            <p>BMP180 Temperature: <span id="temperature">--</span> &deg;C</p>
-            <p>Pressure: <span id="pressure">--</span> hPa</p>
-            <p>Altitude: <span id="altitude">--</span> m</p>
-        </div>
-        <div id="relay-controls">
-            <!-- Relay controls will be dynamically inserted here -->
-        </div>
-        
-        <h2>Configuration</h2>
-        <div class="config-form">
-            <form id="configForm">
-                <label for="sea_level">Sea Level Pressure (hPa):</label>
-                <input type="number" step="0.01" id="sea_level" name="sea_level"><br>
-                
-                <label for="temp_offset">Temperature Offset (&deg;C):</label>
-                <input type="number" step="0.01" id="temp_offset" name="temp_offset"><br>
-                
-                <h3>Relay Timers</h3>
-                <div id="relay-timers">
-                    <!-- Relay timer inputs will be dynamically inserted here -->
-                </div>
-                
-                <input type="submit" value="Update Configuration">
-            </form>
-        </div>
-        
-        <div class="nav-links">
-            <a href="#" onclick="toggleSection('dashboard')">Dashboard</a>
-            <a href="#" onclick="toggleSection('config')">Configuration</a>
-            <a href="/logs" target="_blank">View Logs</a>
-        </div>
-    </div>
-    <!-- Link to external JavaScript file -->
-    <script src="dashboard.js"></script>
+  <h1>Plant Monitoring Dashboard</h1>
+
+  <div class="dashboard">
+      <div class="card plant-card">
+          <svg class="plant-icon" viewBox="0 0 100 100">
+              <path d="M50 10 Q60 40 80 50 Q60 60 50 90 Q40 60 20 50 Q40 40 50 10" fill="#4CAF50"></path>
+          </svg>
+          <h2>Plant 1</h2>
+          <div class="humidity-bar">
+              <div class="humidity-level" id="plant1-humidity"></div>
+          </div>
+          <p class="humidity-text" id="plant1-humidity-text">Humidity: --</p>
+      </div>
+
+      <div class="card plant-card">
+          <svg class="plant-icon" viewBox="0 0 100 100">
+              <path d="M50 10 Q70 30 90 50 Q70 70 50 90 Q30 70 10 50 Q30 30 50 10" fill="#8BC34A"></path>
+          </svg>
+          <h2>Plant 2</h2>
+          <div class="humidity-bar">
+              <div class="humidity-level" id="plant2-humidity"></div>
+          </div>
+          <p class="humidity-text" id="plant2-humidity-text">Humidity: --</p>
+      </div>
+
+      <div class="card plant-card">
+          <svg class="plant-icon" viewBox="0 0 100 100">
+              <path d="M50 10 Q80 20 90 50 Q80 80 50 90 Q20 80 10 50 Q20 20 50 10" fill="#CDDC39"></path>
+          </svg>
+          <h2>Plant 3</h2>
+          <div class="humidity-bar">
+              <div class="humidity-level" id="plant3-humidity"></div>
+          </div>
+          <p class="humidity-text" id="plant3-humidity-text">Humidity: --</p>
+      </div>
+
+      <div class="card plant-card">
+          <svg class="plant-icon" viewBox="0 0 100 100">
+              <path d="M50 10 Q90 10 90 50 Q90 90 50 90 Q10 90 10 50 Q10 10 50 10" fill="#9CCC65"></path>
+          </svg>
+          <h2>Plant 4</h2>
+          <div class="humidity-bar">
+              <div class="humidity-level" id="plant4-humidity"></div>
+          </div>
+          <p class="humidity-text" id="plant4-humidity-text">Humidity: --</p>
+      </div>
+
+      <div class="card sensor-card">
+          <h2>Temperature</h2>
+          <p class="sensor-value" id="temperature">--°C</p>
+          <svg width="50" height="50" viewbox="0 0 50 50">
+              <circle cx="25" cy="25" r="20" fill="none" stroke="#FF5722" stroke-width="4"></circle>
+              <line x1="25" y1="25" x2="25" y2="10" stroke="#FF5722" stroke-width="4" stroke-linecap="round"></line>
+          </svg>
+      </div>
+
+      <div class="card sensor-card">
+          <h2>Pressure</h2>
+          <p class="sensor-value" id="pressure">-- hPa</p>
+          <svg width="50" height="50" viewbox="0 0 50 50">
+              <path d="M10 40 Q25 10 40 40" fill="none" stroke="#2196F3" stroke-width="4"></path>
+              <circle cx="25" cy="40" r="8" fill="#2196F3"></circle>
+          </svg>
+      </div>
+  </div>
+
+  <div class="water-level-indicator" id="water-level-indicator">Water Level: --</div>
+
+  <h2>Relay Controls</h2>
+  <div class="dashboard">
+      <div class="card">
+          <h3>Relay 1</h3>
+          <label class="toggle-switch">
+              <input type="checkbox" id="relay1">
+              <span class="slider"></span>
+          </label>
+          <p class="countdown" id="countdown1"></p>
+      </div>
+
+      <div class="card">
+          <h3>Relay 2</h3>
+          <label class="toggle-switch">
+              <input type="checkbox" id="relay2">
+              <span class="slider"></span>
+          </label>
+          <p class="countdown" id="countdown2"></p>
+      </div>
+
+      <div class="card">
+          <h3>Relay 3</h3>
+          <label class="toggle-switch">
+              <input type="checkbox" id="relay3">
+              <span class="slider"></span>
+          </label>
+          <p class="countdown" id="countdown3"></p>
+      </div>
+
+      <div class="card">
+          <h3>Relay 4</h3>
+          <label class="toggle-switch">
+              <input type="checkbox" id="relay4">
+              <span class="slider"></span>
+          </label>
+          <p class="countdown" id="countdown4"></p>
+      </div>
+  </div>
+
+  <p>
+      <a href="config.html">Configuration</a> |
+      <a href="log.html">Logs</a>
+  </p>
+
+  <script src="index.js"></script>
 </body>
 </html>
+
+
+

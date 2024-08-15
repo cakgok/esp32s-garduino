@@ -13,6 +13,7 @@ struct SensorData {
     float temperature;
     float pressure;
     bool waterLevel;
+    std::array<bool, 4> relayState;
 };
 
 class SensorManager {
@@ -30,17 +31,7 @@ private:
 
 public:
     SensorManager(ConfigManager& configManager)
-        : configManager(configManager) {
-        xTaskCreatePinnedToCore(
-            sensorTaskFunction,
-            "SensorTask",
-            4096,
-            this,
-            1,
-            &sensorTaskHandle,
-            0
-        );
-    }
+        : configManager(configManager), sensorTaskHandle(nullptr) {}
 
     void setupFloatSwitch(int pin);
     void setupSensors(int sda_pin, int scl_pin);
@@ -48,6 +39,7 @@ public:
     void initLCD();
     void updateSensorData();
     SensorData getSensorData();
+    void startSensorTask(); // New method to start the sensor task
 
 private:
     float readMoistureSensor(int sensorPin);
