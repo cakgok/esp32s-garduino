@@ -99,9 +99,7 @@ private:
             xRingbufferSend(logBuffer, message.c_str(), message.length() + 1, pdMS_TO_TICKS(10));
         }
 
-        #ifndef DISABLE_SERIAL_PRINT
         Serial.println(message);
-        #endif
     }
 
     const char* getLevelString(LogLevel level) {

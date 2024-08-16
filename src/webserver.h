@@ -11,6 +11,8 @@
 #include "RelayManager.h"
 #include "globals.h"
 #include <vector>
+#include <AsyncJson.h>
+#include <esp_log.h>
 
 class ESP32WebServer {
 private:
@@ -21,6 +23,8 @@ private:
     SensorManager& sensorManager; 
     ConfigManager& configManager; 
     AsyncEventSource* events;
+    // Add this at the top of your file, outside of any function
+    String capturedBody = "";
 
     void setupRoutes() {
         // Serve static files
@@ -41,12 +45,16 @@ private:
         server.on("/api/config", HTTP_GET, std::bind(&ESP32WebServer::handleGetConfig, this, std::placeholders::_1));
         server.on("/api/config", HTTP_POST, std::bind(&ESP32WebServer::handlePostConfig, this, std::placeholders::_1));
         server.on("/api/sensorData", HTTP_GET, std::bind(&ESP32WebServer::handleGetSensorData, this, std::placeholders::_1));
-        server.on("/api/relay", HTTP_POST, std::bind(&ESP32WebServer::handlePostRelay, this, std::placeholders::_1));
+        //server.on("/api/relay", HTTP_POST, std::bind(&ESP32WebServer::handlePostRelay, this, std::placeholders::_1));
         server.on("/api/resetToDefault", HTTP_GET, std::bind(&ESP32WebServer::handleGetDefaults, this, std::placeholders::_1));
 
-                // Add SSE route
+        // Add SSE route
         events = new AsyncEventSource("/api/events");
         server.addHandler(events);
+
+        //aysnc json
+        AsyncCallbackJsonWebHandler* handler = new AsyncCallbackJsonWebHandler("/api/relay",std::bind(&ESP32WebServer::handlePostRelay, this, std::placeholders::_1, std::placeholders::_2));
+        server.addHandler(handler);
     }
 
     void handleGetLogs(AsyncWebServerRequest *request) {
@@ -169,33 +177,33 @@ private:
         request->send(response);
     }
 
-    void handlePostRelay(AsyncWebServerRequest *request) {
-        if (request->hasParam("relay", true) && request->hasParam("active", true)) {
-            int relayIndex = request->getParam("relay", true)->value().toInt();
-            bool active = request->getParam("active", true)->value() == "true";
+    void handlePostRelay(AsyncWebServerRequest *request, JsonVariant &json) {
+        JsonObject jsonObj = json.as<JsonObject>();
+        
+        if (jsonObj.containsKey("relay") && jsonObj.containsKey("active")) {
+            int relayIndex = jsonObj["relay"];
+            bool active = jsonObj["active"];
 
             if (relayIndex >= 0 && relayIndex < RELAY_COUNT) {
+                bool success;
                 if (active) {
-                    relayManager.activateRelay(relayIndex);
+                    success = relayManager.activateRelay(relayIndex);
                 } else {
-                    relayManager.deactivateRelay(relayIndex);
+                    success = relayManager.deactivateRelay(relayIndex);
                 }
 
-                AsyncResponseStream *response = request->beginResponseStream("application/json");
-                JsonDocument doc;
-                doc["success"] = true;
-                doc["message"] = active ? "Relay activated" : "Relay deactivated";
-                doc["relayIndex"] = relayIndex;
-                serializeJson(doc, *response);
-                request->send(response);
-
-                // Send update to all connected clients
-                sendUpdate();
+                if (success) {
+                    String response = "{\"success\":true,\"relayIndex\":" + String(relayIndex) + 
+                                    ",\"message\":\"Relay " + String(active ? "activated" : "deactivated") + "\"}";
+                    request->send(200, "application/json", response);
+                } else {
+                    request->send(500, "application/json", "{\"success\":false,\"message\":\"Failed to toggle relay\"}");
+                }
             } else {
-                request->send(400, "text/plain", "Invalid relay index");
+                request->send(400, "application/json", "{\"success\":false,\"message\":\"Invalid relay index\"}");
             }
         } else {
-            request->send(400, "text/plain", "Missing parameters");
+            request->send(400, "application/json", "{\"success\":false,\"message\":\"Missing relay or active parameter\"}");
         }
     }
 

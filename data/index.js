@@ -72,38 +72,49 @@ function startCountdown(element, duration) {
     }, 1000);
 }
 
-document.querySelectorAll('.slider').forEach((slider, index) => {
-    slider.addEventListener('change', function() {
-        const relayIndex = index + 1;
+document.querySelectorAll('.toggle-switch input[type="checkbox"]').forEach((checkbox, index) => {
+    checkbox.addEventListener('change', function() {
+        const relayIndex = index;
         const active = this.checked;
         
+        const payload = JSON.stringify({ relay: relayIndex, active: active });
+        console.log('Sending payload:', payload);
+
         fetch('/api/relay', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ relay: relayIndex, active: active }),
+            body: payload,
         })
-        .then(response => response.json())
+        .then(response => {
+            console.log('Response status:', response.status);
+            console.log('Response headers:', response.headers);
+            return response.text();  // Change this to text() instead of json()
+        })
         .then(data => {
-            if (data.success) {
-                if (data.active && data.activationTime) {
-                    const countdownElement = document.getElementById(`countdown${relayIndex}`);
-                    startCountdown(countdownElement, data.activationTime);
+            console.log('Raw server response:', data);
+            try {
+                const jsonData = JSON.parse(data);
+                console.log('Parsed server response:', jsonData);
+                if (jsonData.success) {
+                    console.log(`Relay ${jsonData.relayIndex} ${jsonData.message}`);
+                } else {
+                    console.error('Relay toggle failed:', jsonData.message);
+                    this.checked = !active; // Revert the slider
                 }
-            } else {
-                // Revert the slider if the action was unsuccessful
-                this.checked = !active;
+            } catch (error) {
+                console.error('Error parsing JSON response:', error);
+                this.checked = !active; // Revert the slider
             }
         })
         .catch(error => {
-            console.error('Error:', error);
-            // Revert the slider on error
-            this.checked = !active;
+            console.error('Fetch error:', error);
+            this.checked = !active; // Revert the slider
+            alert('Failed to toggle relay. Please try again.');
         });
     });
 });
-
 
 // Initial dashboard update
 fetch('/api/sensorData')

@@ -90,17 +90,15 @@ void setup() {
     sensorManager.setupSensors(SDA_PIN, SCL_PIN);
     sensorManager.setupMoistureSensors(MOISTURE_SENSOR_PINS);
     sensorManager.startSensorTask();
-    relayManager.initRelayControl();
     webServer.begin();
     lcdManager.start();
     publishTask.start();
-
     logger.log("Setup complete");   
 }
 
 void loop() {
   ArduinoOTA.handle();
   mqttManager.loop();
-  delay(10);
+  delay(100);
 }
 

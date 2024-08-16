@@ -9,70 +9,52 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "globals.h"
-#include "freertos/semphr.h"
-#include "esp_log.h" // Add this for logging
+#include "esp_log.h"
 
-#define TAG "RelayManager" // Define a tag for logging
+#define TAG "RelayManager"
 
 class RelayManager {
 public:
     RelayManager(ConfigManager& configManager, SensorManager& sensorManager)
-        : configManager(configManager), sensorManager(sensorManager) {
+        : configManager(configManager), sensorManager(sensorManager), activeRelay(-1) {
         ESP_LOGI(TAG, "RelayManager initialized");
     }
 
-    SemaphoreHandle_t relaySemaphore;
-
-    void initRelayControl() {
-        relaySemaphore = xSemaphoreCreateBinary();
-        xSemaphoreGive(relaySemaphore); // Initialize as available
-        ESP_LOGI(TAG, "Relay control initialized");
-    }
-
-    void activateRelay(size_t index) {
-        std::lock_guard<std::mutex> lock(relayStatesMutex);
+    bool activateRelay(size_t index) {
+        std::lock_guard<std::mutex> lock(relayMutex);
         if (index >= RELAY_COUNT) {
             ESP_LOGE(TAG, "Invalid relay index: %d", index);
-            return;
+            return false;
         }
         if (sensorManager.getSensorData().waterLevel == false) {
             ESP_LOGW(TAG, "Water level too low, cannot activate relay %d", index);
-            return;
+            return false;
         }
 
-        if (xSemaphoreTake(relaySemaphore, pdMS_TO_TICKS(10000)) == pdTRUE) {
-            relayStates[index] = true;
-            lastWateringTime[index] = esp_timer_get_time();
-            setRelayHardwareState(index, true);
-            ESP_LOGI(TAG, "Relay %d activated", index);
-
-            auto config = configManager.getSensorConfig(index);
-            scheduleDeactivation(index, config.activationPeriod);
-        } else {
-            ESP_LOGW(TAG, "Failed to acquire semaphore for relay %d", index);
+        // Deactivate currently active relay if any
+        if (activeRelay != -1 && activeRelay != index) {
+            deactivateRelayInternal(activeRelay);
         }
+
+        // Activate the requested relay
+        activeRelay = index;
+        relayStates[index] = true;
+        lastWateringTime[index] = esp_timer_get_time();
+        setRelayHardwareState(index, true);
+        ESP_LOGI(TAG, "Relay %d activated", index);
+
+        auto config = configManager.getSensorConfig(index);
+        scheduleDeactivation(index, config.activationPeriod);
+        return true;
     }
 
-    void deactivateRelay(size_t index) {
-        std::lock_guard<std::mutex> lock(relayStatesMutex);
-
-        if (index >= RELAY_COUNT) {
-            ESP_LOGE(TAG, "Invalid relay index: %d", index);
-            return;
-        }
-        if (deactivationTasks[index] != nullptr) {
-            vTaskDelete(deactivationTasks[index]);
-            deactivationTasks[index] = nullptr;
-        }
-
-        relayStates[index] = false;
-        setRelayHardwareState(index, false);
-        xSemaphoreGive(relaySemaphore);
-        ESP_LOGI(TAG, "Relay %d deactivated", index);
+    bool deactivateRelay(size_t index) {
+        std::lock_guard<std::mutex> lock(relayMutex);
+        return deactivateRelayInternal(index);
     }
 
     bool isRelayActive(size_t index) {
-        std::lock_guard<std::mutex> lock(relayStatesMutex);
+        std::lock_guard<std::mutex> lock(relayMutex);
         if (index >= RELAY_COUNT) {
             ESP_LOGE(TAG, "Invalid relay index: %d", index);
             return false;
@@ -81,10 +63,9 @@ public:
     }
 
     std::array<bool, RELAY_COUNT> getRelayStates() {
-        std::lock_guard<std::mutex> lock(relayStatesMutex);
+        std::lock_guard<std::mutex> lock(relayMutex);
         return relayStates;
     }
-
 
 private:
     ConfigManager& configManager;
@@ -92,7 +73,29 @@ private:
     std::array<int64_t, RELAY_COUNT> lastWateringTime = {0};
     std::array<bool, RELAY_COUNT> relayStates = {false};
     std::array<TaskHandle_t, RELAY_COUNT> deactivationTasks = {nullptr};
-    std::mutex relayStatesMutex;
+    std::mutex relayMutex;
+    int activeRelay;
+
+    bool deactivateRelayInternal(size_t index) {
+        if (index >= RELAY_COUNT) {
+            ESP_LOGE(TAG, "Invalid relay index: %d", index);
+            return false;
+        }
+        if (deactivationTasks[index] != nullptr) {
+            vTaskDelete(deactivationTasks[index]);
+            deactivationTasks[index] = nullptr;
+        }
+
+        relayStates[index] = false;
+        setRelayHardwareState(index, false);
+        ESP_LOGI(TAG, "Relay %d deactivated", index);
+
+        if (activeRelay == index) {
+            activeRelay = -1;
+        }
+
+        return true;
+    }
 
     void setRelayHardwareState(size_t index, bool state) {
         digitalWrite(RELAY_PINS[index], state ? LOW : HIGH);
@@ -116,10 +119,8 @@ private:
         );
 
         if (taskCreated != pdPASS) {
-            // Task creation failed, clean up and handle the error
             delete params;
             ESP_LOGE(TAG, "Failed to create deactivation task for relay %d", index);
-            // Handle the error (e.g., try to deactivate immediately or retry)
         }
 
         ESP_LOGI(TAG, "Deactivation scheduled for relay %d after %d ms", index, duration);
@@ -131,23 +132,15 @@ private:
         size_t index = params->index;
         
         vTaskDelay(pdMS_TO_TICKS(self->configManager.getSensorConfig(index).activationPeriod));
-        if (self->isRelayActive(index)) {
-            self->deactivateRelay(index);
-        }        
+        self->deactivateRelay(index);
+        
         self->deactivationTasks[index] = nullptr;
         delete params;
         vTaskDelete(nullptr);
     }
     
-    static void taskFunction(void* pvParameters) {
-        RelayManager* self = static_cast<RelayManager*>(pvParameters);
-        while (true) {
-            self->controlWatering();
-            vTaskDelay(pdMS_TO_TICKS(self->configManager.getSensorUpdateInterval()));
-        }
-    }
-
     void controlWatering() {
+        std::lock_guard<std::mutex> lock(relayMutex);
         int64_t currentTime = esp_timer_get_time();
         SensorData sensorData = sensorManager.getSensorData();
 
@@ -159,11 +152,31 @@ private:
             ESP_LOGD(TAG, "Relay %d: Moisture level: %d, Threshold: %d", i, sensorData.moisture[i], config.threshold);
 
             if (timeSinceLastWatering >= config.wateringInterval &&
-                sensorData.moisture[i] < config.threshold) {
+                sensorData.moisture[i] < config.threshold &&
+                activeRelay == -1) {
                 ESP_LOGI(TAG, "Activating relay %d due to low moisture", i);
                 activateRelay(i);
+                break;  // Only activate one relay at a time
             }
         }
+    }
+
+public:
+    void startControlTask() {
+        xTaskCreate(
+            [](void* pvParameters) {
+                RelayManager* self = static_cast<RelayManager*>(pvParameters);
+                while (true) {
+                    self->controlWatering();
+                    vTaskDelay(pdMS_TO_TICKS(self->configManager.getSensorUpdateInterval()));
+                }
+            },
+            "WateringControl",
+            4096,
+            this,
+            1,
+            nullptr
+        );
     }
 };
 
