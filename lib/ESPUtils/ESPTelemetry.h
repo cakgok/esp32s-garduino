@@ -8,14 +8,13 @@
 class ESPTelemetry {
 public:
     ESPTelemetry(ESPMQTTManager& mqttManager, 
-                 ESPLogger* logger, 
                  const char* topic = "esp/telemetry")
-        : mqttManager(mqttManager), 
-          logger(logger), 
+        : logger(Logger::instance()),
+          mqttManager(mqttManager), 
           topic(topic) {}
 
     void publishTelemetry() {
-        if (logger) logger->log(LogLevel::INFO, "Preparing telemetry...");
+        logger.log(Logger::Level::INFO, "Preparing telemetry...");
         
         JsonDocument doc;
         
@@ -37,12 +36,12 @@ public:
 
     void setTopic(const char* newTopic) {
         topic = newTopic;
-        if (logger) logger->log(LogLevel::INFO, "Telemetry topic set to: %s", newTopic);
+        logger.log(Logger::Level::INFO, "Telemetry topic set to: {}", newTopic);
     }
 
 private:
+    Logger& logger;
     ESPMQTTManager& mqttManager;
-    ESPLogger* logger;
     const char* topic;
 };
 

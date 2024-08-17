@@ -29,10 +29,10 @@ const ESPMQTTManager::Config mqttConfig = {
     .clientID = "MyESP32Client"
 };
 
-ESPLogger logger;
-ESPMQTTManager mqttManager(&logger, mqttConfig);
-ESPTelemetry espTelemetry(mqttManager, &logger, "esp8266/telemetry");
-ESPTimeSetup timeSetup(&logger, "pool.ntp.org", 0, 3600);
+Logger& logger = Logger::instance();
+ESPMQTTManager mqttManager(mqttConfig);
+ESPTelemetry espTelemetry(mqttManager, "esp8266/telemetry");
+ESPTimeSetup timeSetup("pool.ntp.org", 0, 3600);
 
 // Initialize devices
 Adafruit_BMP085 bmp;
@@ -40,13 +40,12 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 Preferences preferences;
 WiFiClientSecure espClient;
 PubSubClient mqttClient(espClient);
-AsyncWebServer server(80);
 ConfigManager configManager;
 SensorManager sensorManager(configManager);
 RelayManager relayManager(configManager, sensorManager);
 LCDManager lcdManager(lcd, sensorManager, configManager);
 SensorPublishTask publishTask(sensorManager, mqttManager, configManager);
-ESP32WebServer webServer(80, logger, relayManager, sensorManager, configManager);
+ESP32WebServer webServer(80, relayManager, sensorManager, configManager);
 
 void setup_wifi() {
   logger.log("Connecting to WiFi...");
@@ -79,9 +78,9 @@ void setupRelayPins() {
 
 void setup() {
     Serial.begin(115200);                 
-    logger.setLogLevel(LogLevel::INFO);
+    logger.setFilterLevel(Logger::Level::INFO);
     setup_wifi();
-    setupOTA(&logger);
+    setupOTA();
     timeSetup.setup();
     mqttManager.setup();
     setupLittleFS();

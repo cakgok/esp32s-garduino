@@ -3,7 +3,7 @@
 
 #include <PubSubClient.h>
 #include <WiFiClientSecure.h>
-#include "ESPLogger.h"
+#include "ESPLogger.h"  // Make sure this is the correct path to your new Logger class
 
 class ESPMQTTManager {
 public:
@@ -15,11 +15,11 @@ public:
         const char* rootCA;
         const char* clientCert;
         const char* clientKey;
-        const char* clientID;  // New field for client ID
+        const char* clientID;
     };
 
-    ESPMQTTManager(ESPLogger* logger, const Config& config)
-        : logger(logger), 
+    ESPMQTTManager(const Config& config)
+        : logger(Logger::instance()),  // Get the logger instance
           config(config),
           espClient(),
           mqttClient(espClient) {}
@@ -29,19 +29,19 @@ public:
         espClient.setCertificate(config.clientCert);
         espClient.setPrivateKey(config.clientKey);
         mqttClient.setServer(config.server, config.port);
-        if (logger) logger->log(LogLevel::INFO, "MQTT client configured");
+        logger.log(Logger::Level::INFO, "MQTT client configured");
     }
 
     void setCallback(MQTT_CALLBACK_SIGNATURE) {
         mqttClient.setCallback(callback);
-        if (logger) logger->log(LogLevel::INFO, "MQTT callback set");
+        logger.log(Logger::Level::INFO, "MQTT callback set");
     }
 
     bool reconnect() {
         if (mqttClient.connected()) {
             return true;
         }
-        if (logger) logger->log(LogLevel::INFO, "Attempting MQTT connection...");
+        logger.log(Logger::Level::INFO, "Attempting MQTT connection...");
         
         String clientId;
         if (config.clientID && strcmp(config.clientID, "random") != 0) {
@@ -50,45 +50,41 @@ public:
             clientId = "ESPClient-" + String(random(0xffff), HEX);
         }
         
-        if (logger) logger->log(LogLevel::INFO, "Using client ID: %s", clientId.c_str());
+        logger.log(Logger::Level::INFO, "Using client ID: {}", clientId.c_str());
         
         if (mqttClient.connect(clientId.c_str(), config.username, config.password)) {
-            if (logger) logger->log(LogLevel::INFO, "Connected to MQTT broker");
+            logger.log(Logger::Level::INFO, "Connected to MQTT broker");
             return true;
         } else {
-            if (logger) logger->log(LogLevel::ERROR, "Failed to connect to MQTT broker, rc=%d", mqttClient.state());
+            logger.log(Logger::Level::ERROR, "Failed to connect to MQTT broker, rc={}", mqttClient.state());
             return false;
         }
     }
 
     bool publish(const char* topic, const char* payload) {
         if (!mqttClient.connected() && !reconnect()) {
-            if (logger) logger->log(LogLevel::ERROR, "Failed to publish: not connected");
+            logger.log(Logger::Level::ERROR, "Failed to publish: not connected");
             return false;
         }
         bool result = mqttClient.publish(topic, payload);
-        if (logger) {
-            if (result) {
-                logger->log(LogLevel::INFO, "Published to topic: %s", topic);
-            } else {
-                logger->log(LogLevel::ERROR, "Failed to publish to topic: %s", topic);
-            }
+        if (result) {
+            logger.log(Logger::Level::INFO, "Published to topic: {}", topic);
+        } else {
+            logger.log(Logger::Level::ERROR, "Failed to publish to topic: {}", topic);
         }
         return result;
     }
 
     bool subscribe(const char* topic) {
         if (!mqttClient.connected() && !reconnect()) {
-            if (logger) logger->log(LogLevel::ERROR, "Failed to subscribe: not connected");
+            logger.log(Logger::Level::ERROR, "Failed to subscribe: not connected");
             return false;
         }
         bool result = mqttClient.subscribe(topic);
-        if (logger) {
-            if (result) {
-                logger->log(LogLevel::INFO, "Subscribed to topic: %s", topic);
-            } else {
-                logger->log(LogLevel::ERROR, "Failed to subscribe to topic: %s", topic);
-            }
+        if (result) {
+            logger.log(Logger::Level::INFO, "Subscribed to topic: {}", topic);
+        } else {
+            logger.log(Logger::Level::ERROR, "Failed to subscribe to topic: {}", topic);
         }
         return result;
     }
@@ -105,7 +101,7 @@ public:
     }
 
 private:
-    ESPLogger* logger;
+    Logger& logger;
     Config config;
     WiFiClientSecure espClient;
     PubSubClient mqttClient;

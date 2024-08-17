@@ -18,13 +18,11 @@ class ESP32WebServer {
 private:
     AsyncWebServer server;
     int serverPort;
-    ESPLogger& logger;
+    Logger& logger;
     RelayManager& relayManager;
     SensorManager& sensorManager; 
     ConfigManager& configManager; 
     AsyncEventSource* events;
-    // Add this at the top of your file, outside of any function
-    String capturedBody = "";
 
     void setupRoutes() {
         // Serve static files
@@ -41,11 +39,10 @@ private:
         server.serveStatic("/log.js", LittleFS, "/log.js");
 
         // API endpoints
-        server.on("/api/logs", HTTP_GET, std::bind(&ESP32WebServer::handleGetLogs, this, std::placeholders::_1));
+        //server.on("/api/logs", HTTP_GET, std::bind(&ESP32WebServer::handleGetLogs, this, std::placeholders::_1));
         server.on("/api/config", HTTP_GET, std::bind(&ESP32WebServer::handleGetConfig, this, std::placeholders::_1));
         server.on("/api/config", HTTP_POST, std::bind(&ESP32WebServer::handlePostConfig, this, std::placeholders::_1));
         server.on("/api/sensorData", HTTP_GET, std::bind(&ESP32WebServer::handleGetSensorData, this, std::placeholders::_1));
-        //server.on("/api/relay", HTTP_POST, std::bind(&ESP32WebServer::handlePostRelay, this, std::placeholders::_1));
         server.on("/api/resetToDefault", HTTP_GET, std::bind(&ESP32WebServer::handleGetDefaults, this, std::placeholders::_1));
 
         // Add SSE route
@@ -57,13 +54,13 @@ private:
         server.addHandler(handler);
     }
 
-    void handleGetLogs(AsyncWebServerRequest *request) {
-        AsyncResponseStream *response = request->beginResponseStream("text/plain");
-        logger.processLogs([response](const String& logEntry) {
-            response->println(logEntry);
-        });
-        request->send(response);
-    }
+    // void handleGetLogs(AsyncWebServerRequest *request) {
+    //     AsyncResponseStream *response = request->beginResponseStream("text/plain");
+    //     logger.processLogs([response](const String& logEntry) {
+    //         response->println(logEntry);
+    //     });
+    //     request->send(response);
+    // }
 
     void handleGetConfig(AsyncWebServerRequest *request) {
         AsyncResponseStream *response = request->beginResponseStream("application/json");
@@ -97,7 +94,7 @@ private:
             DeserializationError error = deserializeJson(doc, configJson);
 
             if (error) {
-                logger.log(LogLevel::ERROR, "Failed to parse config JSON");
+                logger.log(Logger::Level::ERROR, "Failed to parse config JSON");
                 request->send(400, "text/plain", "Invalid JSON");
                 return;
             }
@@ -134,10 +131,10 @@ private:
             );
 
             if (success) {
-                logger.log(LogLevel::INFO, "Configuration updated successfully");
+                logger.log(Logger::Level::INFO, "Configuration updated successfully");
                 request->send(200, "text/plain", "Configuration updated");
             } else {
-                logger.log(LogLevel::ERROR, "Failed to update configuration");
+                logger.log(Logger::Level::ERROR, "Failed to update configuration");
                 request->send(500, "text/plain", "Failed to update configuration");
             }
         } else {
@@ -173,7 +170,7 @@ private:
             }
         }
         serializeJson(doc, *response);
-        logger.log("Sending sensor data to client ");
+        logger.log(Logger::Level::INFO, "Sending sensor data to client");
         request->send(response);
     }
 
@@ -212,16 +209,23 @@ private:
     }
 
 public:
-    ESP32WebServer(int port, ESPLogger& logger, RelayManager& relayManager, SensorManager& sensorManager, ConfigManager& configManager)
-        : server(port), logger(logger), relayManager(relayManager), serverPort(port), sensorManager(sensorManager), configManager(configManager) {
-        setupRoutes();
-    }
+    ESP32WebServer(int port, RelayManager& relayManager, SensorManager& sensorManager, ConfigManager& configManager)
+            : server(port), 
+            logger(Logger::instance()),
+            relayManager(relayManager), 
+            serverPort(port), 
+            sensorManager(sensorManager), 
+            configManager(configManager) {
+            setupRoutes();
+        }
+
 
 
     void begin() {
         server.begin();
-        logger.log(LogLevel::INFO, "Async HTTP server started on port %d", serverPort);
+        logger.log(Logger::Level::INFO, "Async HTTP server started on port {}", serverPort);
     }
+
 
     void sendUpdate() {
         JsonDocument doc;

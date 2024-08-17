@@ -1,116 +1,157 @@
 #ifndef ESP_LOGGER_H
 #define ESP_LOGGER_H
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/ringbuf.h"
-#include "freertos/semphr.h"
+#include <array>
+#include <string>
+#include <string_view>
+#include <functional>
+#include <esp_log.h>
+#include <mutex>
+#include <atomic>
+#include <cstdarg>
 
-enum class LogLevel {
-    DEBUG,
-    INFO,
-    WARNING,
-    ERROR
-};
-
-class ESPLogger {
+class Logger {
 public:
-   ESPLogger(size_t bufferSize = 50) 
-        : currentLogLevel(LogLevel::INFO) {
-        logBuffer = xRingbufferCreate(bufferSize, RINGBUF_TYPE_NOSPLIT);
-        mutex = xSemaphoreCreateMutex();
+    enum class Level { DEBUG, INFO, WARNING, ERROR };
+
+    using LogCallback = std::function<void(std::string_view, Level, std::string_view)>;
+
+    static constexpr size_t MAX_LOGS = 100;
+    static constexpr size_t LOG_SIZE = 512;
+    static constexpr std::string_view DEFAULT_TAG = "DEFAULT";
+    static constexpr std::string_view OVERFLOW_MSG = " [LOG OVERFLOW]";
+
+    static Logger& instance() {
+        static Logger instance;
+        return instance;
     }
 
-    ~ESPLogger() {
-        if (logBuffer != nullptr) {
-            vRingbufferDelete(logBuffer);
+    void setCallback(LogCallback cb) {
+        std::lock_guard<std::mutex> lock(logMutex);
+        callback = std::move(cb);
+    }
+
+    void setFilterLevel(Level level) {
+        filterLevel.store(level, std::memory_order_relaxed);
+    }
+
+    void log(std::string_view tag, Level level, const char* fmt, ...) {
+        if (level >= filterLevel.load(std::memory_order_relaxed)) {
+            va_list args;
+            va_start(args, fmt);
+            char message[LOG_SIZE];
+            vsnprintf(message, sizeof(message), fmt, args);
+            va_end(args);
+            addLog(tag, level, message);
         }
-        vSemaphoreDelete(mutex);
     }
 
-    void log(const char* format, ...) {
-        xSemaphoreTake(mutex, portMAX_DELAY);
-        va_list args;
-        va_start(args, format);
-        logInternal(LogLevel::INFO, format, args);
-        va_end(args);
-        xSemaphoreGive(mutex);
-    }
-
-    void log(LogLevel level, const char* format, ...) {
-        if (level < currentLogLevel) return;
-        xSemaphoreTake(mutex, portMAX_DELAY);
-        va_list args;
-        va_start(args, format);
-        logInternal(level, format, args);
-        va_end(args);
-        xSemaphoreGive(mutex);
-    }
-
-    void setLogLevel(LogLevel level) {
-        xSemaphoreTake(mutex, portMAX_DELAY);
-        currentLogLevel = level;
-        xSemaphoreGive(mutex);
-    }
-    typedef std::function<void(const String& log)> LogCallback;
-
-    void processLogs(LogCallback callback) {
-        xSemaphoreTake(mutex, portMAX_DELAY); // Protect access to logBuffer
-        if (logBuffer == nullptr) {
-            xSemaphoreGive(mutex);
-            return;
+    void log(Level level, const char* fmt, ...) {
+        if (level >= filterLevel.load(std::memory_order_relaxed)) {
+            va_list args;
+            va_start(args, fmt);
+            char message[LOG_SIZE];
+            vsnprintf(message, sizeof(message), fmt, args);
+            va_end(args);
+            addLog(DEFAULT_TAG, level, message);
         }
+    }
 
-        size_t item_size;
-        char* item;
-
-        while ((item = (char*) xRingbufferReceive(logBuffer, &item_size, pdMS_TO_TICKS(10))) != nullptr) {
-            String logEntry = String(item);
-            callback(logEntry);  // Process each log entry individually
-            vRingbufferReturnItem(logBuffer, (void*) item);
+    void log(const char* fmt, ...) {
+        if (Level::INFO >= filterLevel.load(std::memory_order_relaxed)) {
+            va_list args;
+            va_start(args, fmt);
+            char message[LOG_SIZE];
+            vsnprintf(message, sizeof(message), fmt, args);
+            va_end(args);
+            addLog(DEFAULT_TAG, Level::INFO, message);
         }
-        
-        xSemaphoreGive(mutex); // Release the mutex
+    }
+
+    [[nodiscard]] std::array<std::string_view, MAX_LOGS> getLogs() const {
+        std::lock_guard<std::mutex> lock(logMutex);
+        std::array<std::string_view, MAX_LOGS> result;
+        size_t currentCount = count.load(std::memory_order_relaxed);
+        size_t currentHead = head.load(std::memory_order_relaxed);
+        size_t index = (currentHead - currentCount + MAX_LOGS) % MAX_LOGS;
+        for (size_t i = 0; i < currentCount; i++) {
+            result[i] = std::string_view(&buffer[index * LOG_SIZE], strnlen(&buffer[index * LOG_SIZE], LOG_SIZE));
+            index = (index + 1) % MAX_LOGS;
+        }
+        return result;
     }
 
 private:
-    RingbufHandle_t logBuffer;
-    LogLevel currentLogLevel;
-    SemaphoreHandle_t mutex;
+    std::array<char, MAX_LOGS * LOG_SIZE> buffer;
+    std::atomic<size_t> head{0};
+    std::atomic<size_t> count{0};
+    LogCallback callback;
+    mutable std::mutex logMutex;
+    std::atomic<Level> filterLevel{Level::DEBUG};
 
-    void logInternal(LogLevel level, const char* format, va_list args) {
-        String message;
-
-        // Reserve enough space for the log level string, the formatted message, and additional characters (e.g., ": ")
-        size_t levelStringLength = strlen(getLevelString(level));
-        size_t bufferLength = 256; // Adjust based on your needs
-        message.reserve(levelStringLength + bufferLength + 2); // +2 for ": " and null terminator
-
-        // Construct the log message
-        message += getLevelString(level);
-        message += ": ";
-
-        // Use vsnprintf to format the message into the String
-        char buffer[bufferLength];
-        vsnprintf(buffer, sizeof(buffer), format, args);
-        message += buffer;
-
-        // Send the message to the ring buffer
-        if (logBuffer != nullptr) {
-            xRingbufferSend(logBuffer, message.c_str(), message.length() + 1, pdMS_TO_TICKS(10));
-        }
-
-        Serial.println(message);
+    Logger() {
+        esp_log_set_vprintf([](const char* fmt, va_list args) {
+            char temp[LOG_SIZE];
+            int len = vsnprintf(temp, sizeof(temp), fmt, args);
+            if (len < 0) {
+                Logger::instance().addLog(DEFAULT_TAG, Level::ERROR, "vsnprintf error in esp_log_set_vprintf");
+                return 0;
+            }
+            if (static_cast<size_t>(len) >= LOG_SIZE) {
+                len = LOG_SIZE - 1;
+            }
+            std::string_view tag = DEFAULT_TAG;
+            Level level = Level::INFO;
+            // Extract tag and level from the formatted string if possible
+            if (len > 1) {
+                switch (temp[0]) {
+                    case 'E': level = Level::ERROR; break;
+                    case 'W': level = Level::WARNING; break;
+                    case 'I': level = Level::INFO; break;
+                    case 'D': level = Level::DEBUG; break;
+                    default: break;
+                }
+                if (level != Level::INFO) {
+                    tag = std::string_view(&temp[2]);
+                    Logger::instance().addLog(tag, level, std::string_view(&temp[2], len - 2));
+                } else {
+                    Logger::instance().addLog(tag, level, std::string_view(temp, len));
+                }
+            }
+            return len;
+        });
     }
 
-    const char* getLevelString(LogLevel level) {
-        switch (level) {
-            case LogLevel::DEBUG: return "DEBUG";
-            case LogLevel::INFO: return "INFO";
-            case LogLevel::WARNING: return "WARNING";
-            case LogLevel::ERROR: return "ERROR";
-            default: return "UNKNOWN";
+    void addLog(std::string_view tag, Level level, std::string_view message) {
+        if (level >= filterLevel.load(std::memory_order_relaxed)) {
+            std::lock_guard<std::mutex> lock(logMutex);
+            
+            size_t currentHead = head.load(std::memory_order_relaxed);
+            char* entry = &buffer[currentHead * LOG_SIZE];
+            
+            std::string formatted = '[' + std::string(tag) + "] " + std::string(message);
+            
+            if (formatted.size() >= LOG_SIZE) {
+                formatted.resize(LOG_SIZE - 1);
+                formatted += OVERFLOW_MSG;
+            }
+            
+            strncpy(entry, formatted.c_str(), LOG_SIZE);
+            entry[LOG_SIZE - 1] = '\0';
+
+            head.store((currentHead + 1) % MAX_LOGS, std::memory_order_relaxed);
+            if (count.load(std::memory_order_relaxed) < MAX_LOGS) {
+                count.fetch_add(1, std::memory_order_relaxed);
+            }
+
+            if (callback) {
+                callback(tag, level, std::string_view(entry, strnlen(entry, LOG_SIZE)));
+            }
         }
     }
+
+    Logger(const Logger&) = delete;
+    Logger& operator=(const Logger&) = delete;
 };
 
 #endif // ESP_LOGGER_H

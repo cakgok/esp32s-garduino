@@ -2,15 +2,14 @@
 #define ESP_TIME_SETUP_H
 
 #include <time.h>
-#include "ESPLogger.h"
+#include "ESPLogger.h"  
 
 class ESPTimeSetup {
 public:
-    ESPTimeSetup(ESPLogger* logger = nullptr, 
-                 const char* ntpServer = "pool.ntp.org", 
+    ESPTimeSetup(const char* ntpServer = "pool.ntp.org", 
                  long gmtOffset_sec = 0, 
                  int daylightOffset_sec = 3600)
-        : logger(logger), 
+        : logger(Logger::instance()),  // Get the logger instance
           ntpServer(ntpServer), 
           gmtOffset_sec(gmtOffset_sec), 
           daylightOffset_sec(daylightOffset_sec) {}
@@ -20,14 +19,10 @@ public:
         
         struct tm timeinfo;
         if(!getLocalTime(&timeinfo)){
-            if (logger) {
-                logger->log(LogLevel::ERROR, "Failed to obtain time");
-            }
+            logger.log(Logger::Level::ERROR, "Failed to obtain time");
             return;
         }
-        if (logger) {
-            logger->log(LogLevel::INFO, "Got time from NTP");
-        }
+        logger.log(Logger::Level::INFO, "Got time from NTP");
     }
 
     void setNTPServer(const char* server) {
@@ -40,7 +35,7 @@ public:
     }
 
 private:
-    ESPLogger* logger;
+    Logger& logger;  // Reference to the logger instance
     const char* ntpServer;
     long gmtOffset_sec;
     int daylightOffset_sec;
