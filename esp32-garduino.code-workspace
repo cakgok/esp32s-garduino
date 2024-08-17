@@ -69,7 +69,15 @@
             "thread": "cpp",
             "cinttypes": "cpp",
             "typeinfo": "cpp",
-            "*.tpp": "cpp"
+            "*.tpp": "cpp",
+            "any": "cpp",
+            "cfenv": "cpp",
+            "codecvt": "cpp",
+            "complex": "cpp",
+            "source_location": "cpp",
+            "iostream": "cpp",
+            "typeindex": "cpp",
+            "variant": "cpp"
         }
     }
 }

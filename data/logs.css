@@ -1,0 +1,42 @@
+body {
+    font-family: Arial, sans-serif;
+    line-height: 1.6;
+    margin: 0;
+    padding: 20px;
+    background-color: #f4f4f4;
+}
+
+h1 {
+    color: #333;
+}
+
+#log-container {
+    background-color: #fff;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    padding: 10px;
+}
+
+.log-entry {
+    margin-bottom: 5px;
+}
+
+.tag {
+    font-weight: bold;
+    margin-right: 5px;
+}
+
+.log-level {
+    font-weight: bold;
+    margin-right: 5px;
+}
+
+.log-message {
+    white-space: pre-wrap;
+}
+
+.debug { color: #6c757d; }
+.info { color: #17a2b8; }
+.warning { color: #ffc107; }
+.error { color: #dc3545; }
+.critical { color: #721c24; background-color: #f8d7da; }

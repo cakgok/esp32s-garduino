@@ -9,12 +9,16 @@
 #include <mutex>
 #include <atomic>
 #include <cstdarg>
+#include <vector>
+
+#ifdef ENABLE_SERIAL_PRINT
+#include <Arduino.h>
+#endif
+#define ENABLE_SERIAL_PRINT // Enable serial printing
 
 class Logger {
 public:
     enum class Level { DEBUG, INFO, WARNING, ERROR };
-
-    using LogCallback = std::function<void(std::string_view, Level, std::string_view)>;
 
     static constexpr size_t MAX_LOGS = 100;
     static constexpr size_t LOG_SIZE = 512;
@@ -26,9 +30,14 @@ public:
         return instance;
     }
 
-    void setCallback(LogCallback cb) {
+    void setCallback(std::function<void(std::string_view, Level, std::string_view)> cb) {
         std::lock_guard<std::mutex> lock(logMutex);
         callback = std::move(cb);
+    }
+
+    void addLogObserver(std::function<void(std::string_view, Level, std::string_view)> observer) {
+        std::lock_guard<std::mutex> lock(logMutex);
+        observers.push_back(std::move(observer));
     }
 
     void setFilterLevel(Level level) {
@@ -81,11 +90,60 @@ public:
         return result;
     }
 
+    struct LogEntry {
+        std::string tag;
+        Level level;
+        std::string message;
+    };
+
+    static bool startsWith(const std::string& str, const std::string& prefix) {
+        return str.size() >= prefix.size() && 
+               str.compare(0, prefix.size(), prefix) == 0;
+    }
+
+    std::vector<LogEntry> getChronologicalLogs() const {
+        std::lock_guard<std::mutex> lock(logMutex);
+        std::vector<LogEntry> result;
+        size_t currentCount = count.load(std::memory_order_relaxed);
+        size_t currentHead = head.load(std::memory_order_relaxed);
+        
+        if (currentCount == 0) {
+            return result;
+        }
+        
+        result.reserve(currentCount);  // Optimize for performance
+        
+        size_t startIndex = (currentHead - currentCount + MAX_LOGS) % MAX_LOGS;
+        for (size_t i = 0; i < currentCount; i++) {
+            size_t index = (startIndex + i) % MAX_LOGS;
+            std::string_view logEntry(&buffer[index * LOG_SIZE], strnlen(&buffer[index * LOG_SIZE], LOG_SIZE));
+            
+            // Parse the log entry
+            size_t tagEnd = logEntry.find(']');
+            if (tagEnd != std::string_view::npos) {
+                std::string tag(logEntry.substr(1, tagEnd - 1));
+                std::string message(logEntry.substr(tagEnd + 2));
+                
+                // Determine log level
+                Level level = Level::INFO;
+                if (startsWith(message, "ERROR:")) level = Level::ERROR;
+                else if (startsWith(message, "WARNING:")) level = Level::WARNING;
+                else if (startsWith(message, "DEBUG:")) level = Level::DEBUG;
+                
+                result.push_back({std::move(tag), level, std::move(message)});
+            }
+        }
+        return result;
+    }
+
+
+
 private:
     std::array<char, MAX_LOGS * LOG_SIZE> buffer;
     std::atomic<size_t> head{0};
     std::atomic<size_t> count{0};
-    LogCallback callback;
+    std::function<void(std::string_view, Level, std::string_view)> callback;
+    std::vector<std::function<void(std::string_view, Level, std::string_view)>> observers;
     mutable std::mutex logMutex;
     std::atomic<Level> filterLevel{Level::DEBUG};
 
@@ -147,6 +205,14 @@ private:
             if (callback) {
                 callback(tag, level, std::string_view(entry, strnlen(entry, LOG_SIZE)));
             }
+
+            for (const auto& observer : observers) {
+                observer(tag, level, std::string_view(entry, strnlen(entry, LOG_SIZE)));
+            }
+
+            #ifdef ENABLE_SERIAL_PRINT
+            Serial.println(formatted.c_str());
+            #endif
         }
     }
 

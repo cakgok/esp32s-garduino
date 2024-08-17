@@ -3,7 +3,7 @@
 
 #include <ArduinoJson.h>
 #include "freertos/FreeRTOS.h"
-#include "freertos/timers.h"
+#include "freertos/task.h"
 #include "SensorManager.h"
 #include "ConfigManager.h"
 #include "MQTTManager.h"
@@ -13,57 +13,55 @@ private:
     SensorManager& sensorManager;
     ESPMQTTManager& mqttManager;
     ConfigManager& configManager;
-    TimerHandle_t timer;
+    TaskHandle_t taskHandle;
 
-    static void timerCallback(TimerHandle_t xTimer) {
-        SensorPublishTask* self = static_cast<SensorPublishTask*>(pvTimerGetTimerID(xTimer));
+    static void taskFunction(void* pvParameters) {
+        SensorPublishTask* self = static_cast<SensorPublishTask*>(pvParameters);
         self->publishSensorData();
     }
 
     void publishSensorData() {
-        SensorData data = sensorManager.getSensorData();
-        JsonDocument doc;
-        
-        for (int i = 0; i < 4; i++) {
-            doc["moisture" + String(i)] = data.moisture[i];
+        while (true) {
+            SensorData data = sensorManager.getSensorData();
+            JsonDocument doc;
+            
+            for (int i = 0; i < 4; i++) {
+                doc["moisture" + String(i)] = data.moisture[i];
+            }
+            doc["temperature"] = data.temperature;
+            doc["pressure"] = data.pressure;
+            doc["waterLevel"] = data.waterLevel;
+
+            String payload;
+            serializeJson(doc, payload);
+            
+            mqttManager.publish("esp32/sensor_data", payload.c_str());
+
+            // Delay for the publish interval
+            uint32_t interval = configManager.getSensorPublishInterval();
+            vTaskDelay(pdMS_TO_TICKS(interval));
         }
-        doc["temperature"] = data.temperature;
-        doc["pressure"] = data.pressure;
-        doc["waterLevel"] = data.waterLevel;
-
-        String payload;
-        serializeJson(doc, payload);
-        
-        mqttManager.publish("esp32/sensor_data", payload.c_str());
-
-        // Update the timer interval for the next publish
-        uint32_t newInterval = configManager.getSensorPublishInterval();
-        xTimerChangePeriod(timer, pdMS_TO_TICKS(newInterval), 0);
     }
 
 public:
     SensorPublishTask(SensorManager& sm, ESPMQTTManager& mm, ConfigManager& cm)
-        : sensorManager(sm), mqttManager(mm), configManager(cm) {
-        
-        timer = xTimerCreate(
-            "SensorPublishTimer",
-            pdMS_TO_TICKS(configManager.getSensorPublishInterval()),
-            pdFALSE,  // Auto-reload
+        : sensorManager(sm), mqttManager(mm), configManager(cm), taskHandle(NULL) {}
+
+    void start() {
+        xTaskCreate(
+            taskFunction,
+            "SensorPublishTask",
+            4096,  // Stack size (adjust as needed)
             this,
-            timerCallback
+            1,  // Priority
+            &taskHandle
         );
     }
 
-    void start() {
-        xTimerStart(timer, 0);
-    }
-
-    void stop() {
-        xTimerStop(timer, 0);
-    }
-
     ~SensorPublishTask() {
-        xTimerDelete(timer, 0);
+        if (taskHandle != NULL) {
+            vTaskDelete(taskHandle);
+        }
     }
 };
 

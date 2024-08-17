@@ -16,7 +16,7 @@
 #include "PublishManager.h"
 #include "RelayManager.h"
 #include "globals.h"
-//#define DISABLE_SERIAL_PRINT
+#define ENABLE_SERIAL_PRINT // Enable serial printing
 
 const ESPMQTTManager::Config mqttConfig = {
     .server = MQTT_SERVER,
@@ -46,6 +46,7 @@ RelayManager relayManager(configManager, sensorManager);
 LCDManager lcdManager(lcd, sensorManager, configManager);
 SensorPublishTask publishTask(sensorManager, mqttManager, configManager);
 ESP32WebServer webServer(80, relayManager, sensorManager, configManager);
+ESP32WebServer* webServerPtr = nullptr;  // Declare the pointer at global scope
 
 void setup_wifi() {
   logger.log("Connecting to WiFi...");
@@ -79,10 +80,21 @@ void setupRelayPins() {
 void setup() {
     Serial.begin(115200);                 
     logger.setFilterLevel(Logger::Level::INFO);
+    Logger::instance().log(Logger::Level::INFO, "This is an INFO log.");
     setup_wifi();
+    delay(100);
+    webServerPtr = &webServer;  // Initialize the pointer in setup()
+    // Set up the logger observer
+    logger.addLogObserver([](std::string_view tag, Logger::Level level, std::string_view message) {
+        if (webServerPtr) {  // Check if the pointer is valid
+            webServerPtr->handleLogMessage(tag, level, message);
+        } 
+    });   
     setupOTA();
     timeSetup.setup();
+    delay(500);
     mqttManager.setup();
+    delay(100);
     setupLittleFS();
     setupRelayPins();
     sensorManager.setupFloatSwitch(FLOAT_SWITCH_PIN);
@@ -91,6 +103,7 @@ void setup() {
     sensorManager.startSensorTask();
     webServer.begin();
     lcdManager.start();
+    delay(1000);
     publishTask.start();
     logger.log("Setup complete");   
 }
