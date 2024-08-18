@@ -1,22 +1,72 @@
-const socket = new WebSocket('ws://' + location.hostname + ':80/ws');
+let socket;
+let reconnectInterval = 5000; // 5 seconds
+let pingInterval;
+let pongTimeout;
 
-socket.onopen = function(e) {
-    console.log('Connected to WebSocket');
-};
+function connectWebSocket() {
+    socket = new WebSocket('ws://' + location.hostname + ':80/ws');
 
-socket.onmessage = function(event) {
-    const log = JSON.parse(event.data);
-    addLogEntry(log);
-};
+    socket.onopen = function(e) {
+        console.log('Connected to WebSocket');
+        startPingInterval();
+    };
 
-function addLogEntry(log) {
-    const logContainer = document.getElementById('log-container');
-    const logEntry = document.createElement('div');
-    logEntry.className = 'log-entry ' + log.level.toLowerCase();
-    logEntry.innerHTML = `<span class="tag">[${log.tag}]</span> <span class="level">${log.level}</span>: ${log.message}`;
-    logContainer.appendChild(logEntry);
-    logContainer.scrollTop = logContainer.scrollHeight;
+    socket.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'ping') {
+            sendPong();
+        } else if (data.type === 'pong') {
+            clearTimeout(pongTimeout);
+        } else if (data.type === 'log') {
+            addLogEntry(data);
+        }
+    };
+
+    socket.onclose = function(event) {
+        console.log('WebSocket connection closed: ', event);
+        clearInterval(pingInterval);
+        setTimeout(connectWebSocket, reconnectInterval);
+    };
+
+    socket.onerror = function(error) {
+        console.error('WebSocket error: ', error);
+    };
 }
+
+function startPingInterval() {
+    pingInterval = setInterval(() => {
+        if (socket.readyState === WebSocket.OPEN) {
+            sendPing();
+            setPongTimeout();
+        }
+    }, 30000); // Send ping every 30 seconds
+}
+
+function sendPing() {
+    socket.send(JSON.stringify({ type: 'ping' }));
+}
+
+function sendPong() {
+    socket.send(JSON.stringify({ type: 'pong' }));
+}
+
+function setPongTimeout() {
+    pongTimeout = setTimeout(() => {
+        console.log('Pong not received, closing connection');
+        socket.close();
+    }, 5000); // Wait 5 seconds for pong before closing
+}
+
+// Start the WebSocket connection
+connectWebSocket();
+
+// Handle page unload
+window.addEventListener('beforeunload', () => {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.close();
+    }
+});
 
 async function fetchLogs() {
     try {
