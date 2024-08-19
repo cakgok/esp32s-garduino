@@ -8,69 +8,67 @@
 #include <array>
 #include <vector>
 #include <cstdint>
-#include <optional>
 #include <mutex>
 #include <shared_mutex>
-
-namespace ConfigConstants {
-    constexpr uint32_t MIN_TELEMETRY_INTERVAL = 10000;  // 10 seconds
-    constexpr uint32_t MAX_TELEMETRY_INTERVAL = 600000; // 10 minutes
-    constexpr uint32_t MIN_SENSORUPDATE_INTERVAL = 10000;  // 10 seconds
-    constexpr uint32_t MAX_SENSORUPDATE_INTERVAL = 600000; // 10 minutes
-    constexpr uint32_t MIN_LCD_INTERVAL = 5000;  // 5 seconds
-    constexpr uint32_t MAX_LCD_INTERVAL = 60000; // 1 minute
-    constexpr float MIN_TEMP_OFFSET = -5.0f;
-    constexpr float MAX_TEMP_OFFSET = 5.0f;
-    constexpr uint32_t MIN_ACTIVATION_PERIOD = 1000;   // 1 second
-    constexpr uint32_t MAX_ACTIVATION_PERIOD = 60000;  // 60 seconds
-    constexpr float MIN_THRESHOLD = 5.0f;
-    constexpr float MAX_THRESHOLD = 50.0f;
-    constexpr uint32_t MIN_WATERING_INTERVAL = 3600000;   // 1 hour
-    constexpr uint32_t MAX_WATERING_INTERVAL = 432000000; // 120 hours
-    constexpr uint32_t MIN_SENSOR_PUBLISH_INTERVAL = 10000;
-    constexpr uint32_t MAX_SENSOR_PUBLISH_INTERVAL = 600000;
-
-    // Default values
-    constexpr float DEFAULT_TEMP_OFFSET = 0.0f;
-    constexpr uint32_t DEFAULT_TELEMETRY_INTERVAL = 60000; // 1 minute
-    constexpr float DEFAULT_THRESHOLD = 25.0f;
-    constexpr uint32_t DEFAULT_ACTIVATION_PERIOD = 30000; // 30 seconds
-    constexpr uint32_t DEFAULT_WATERING_INTERVAL = 86400000; // 24 hours
-    constexpr uint32_t DEFAULT_SENSOR_UPDATE_INTERVAL = 10000; // 10 seconds
-    constexpr uint32_t DEFAULT_LCD_UPDATE_INTERVAL = 5000; // 5 seconds
-    constexpr uint32_t DEFAULT_SENSOR_PUBLISH_INTERVAL = 30000; // 30 seconds
-}
+#include <optional>
+#include <variant>
+#include "Globals.h"
+#include "ESPLogger.h"
 
 class ConfigManager {
 public:
-    static constexpr size_t RELAY_COUNT = 4;
-    
     struct SensorConfig {
         float threshold;
         uint32_t activationPeriod;
         uint32_t wateringInterval;
+        bool sensorEnabled;
+        bool relayEnabled;
+        int sensorPin;
+        int relayPin;
     };
 
-    struct CachedConfig {
-        std::optional<float> temperatureOffset;
-        std::optional<uint32_t> telemetryInterval;
-        std::optional<uint32_t> sensorUpdateInterval;
-        std::optional<uint32_t> sensorPublishInterval;
-        std::optional<uint32_t> lcdUpdateInterval;
-        std::array<std::optional<SensorConfig>, RELAY_COUNT> sensorConfigs;
+    struct HardwareConfig {
+        int sdaPin;
+        int sclPin;
+        int floatSwitchPin;
+        std::array<int, ConfigConstants::RELAY_COUNT> moistureSensorPins;
+        std::array<int, ConfigConstants::RELAY_COUNT> relayPins;
     };
 
-    using ObserverCallback = std::function<void(const std::string&)>;
+    struct SoftwareConfig {
+        float tempOffset;
+        uint32_t telemetryInterval;
+        uint32_t sensorUpdateInterval;
+        uint32_t lcdUpdateInterval;
+        uint32_t sensorPublishInterval;
+    };
 
-    ConfigManager() : preferences() {}
+    enum class ConfigKey {
+        SENSOR_THRESHOLD,
+        SENSOR_ACTIVATION_PERIOD,
+        SENSOR_WATERING_INTERVAL,
+        SENSOR_ENABLED,
+        RELAY_ENABLED,
+        SENSOR_PIN,
+        RELAY_PIN,
+        SDA_PIN,
+        SCL_PIN,
+        FLOAT_SWITCH_PIN,
+        TEMP_OFFSET,
+        TELEMETRY_INTERVAL,
+        SENSOR_UPDATE_INTERVAL,
+        LCD_UPDATE_INTERVAL,
+        SENSOR_PUBLISH_INTERVAL
+    };
+
+    using ConfigValue = std::variant<bool, int, float, uint32_t>;
+    using ObserverCallback = std::function<void(ConfigKey)>;
+    ConfigManager() : logger(Logger::instance()),
+                      preferences() {}
 
     bool begin(const char* name = "irrigation-config") {
         std::unique_lock<std::shared_mutex> lock(mutex);
-        bool success = preferences.begin(name, false);
-        if (success) {
-            loadCachedValues();
-        }
-        return success;
+        return preferences.begin(name, false);
     }
 
     void end() {
@@ -78,111 +76,131 @@ public:
         preferences.end();
     }
 
-    bool updateAndSaveAll(
-        std::optional<float> tempOffset,
-        std::optional<uint32_t> telemetryInterval,
-        std::optional<uint32_t> sensorUpdateInterval,
-        std::optional<uint32_t> lcdUpdateInterval,
-        std::optional<uint32_t> sensorPublishInterval,
-        const std::array<std::optional<SensorConfig>, RELAY_COUNT>& sensorConfigs) 
-    {
+    void setValue(ConfigKey key, ConfigValue value, size_t index = 0) {
         std::unique_lock<std::shared_mutex> lock(mutex);
-        bool isValid = true;
-        
-        if (tempOffset) isValid &= setTemperatureOffsetInternal(*tempOffset);
-        if (telemetryInterval) isValid &= setTelemetryIntervalInternal(*telemetryInterval);
-        if (sensorUpdateInterval) isValid &= setSensorUpdateIntervalInternal(*sensorUpdateInterval);
-        if (lcdUpdateInterval) isValid &= setLCDUpdateIntervalInternal(*lcdUpdateInterval);
-        if (sensorPublishInterval) isValid &= setSensorPublishIntervalInternal(*sensorPublishInterval);
-
-        for (size_t i = 0; i < RELAY_COUNT; i++) {
-            if (sensorConfigs[i]) isValid &= setSensorConfigInternal(i, *sensorConfigs[i]);
+        std::string prefKey = getPreferenceKey(key, index);
+        if (setValueInternal(prefKey, value)) {
+            notifyObservers(key);
+        } else {
+            logger.log("ConfigManager", "ERROR", "Failed to save value for key: " + prefKey);
         }
-        
-        if (isValid) {
-            return saveChanges();
+    }
+
+    ConfigValue getValue(ConfigKey key, size_t index = 0) const {
+        std::shared_lock<std::shared_mutex> lock(mutex);
+        std::string prefKey = getPreferenceKey(key, index);
+        auto value = getValueInternal(prefKey);
+        if (!value) {
+            logger.log("ConfigManager", "WARNING", "Value not found for key: " + prefKey + ". Using default.");
+            return defaultValues.at(key);
         }
-        
-        return false;
+        return *value;
     }
 
-    bool setLCDUpdateInterval(uint32_t interval) {
-        std::unique_lock<std::shared_mutex> lock(mutex);
-        return setLCDUpdateIntervalInternal(interval);
-    }
-
-    bool setSensorUpdateInterval(uint32_t interval) {
-        std::unique_lock<std::shared_mutex> lock(mutex);
-        return setSensorUpdateIntervalInternal(interval);
-    }
-
-    bool setTemperatureOffset(float offset) {
-        std::unique_lock<std::shared_mutex> lock(mutex);
-        return setTemperatureOffsetInternal(offset);
-    }
-
-    bool setTelemetryInterval(uint32_t interval) {
-        std::unique_lock<std::shared_mutex> lock(mutex);
-        return setTelemetryIntervalInternal(interval);
-    }
-
-    bool setSensorConfig(size_t index, const SensorConfig& config) {
-        std::unique_lock<std::shared_mutex> lock(mutex);
-        return setSensorConfigInternal(index, config);
-    }
-
-    bool setSensorPublishInterval(uint32_t interval) {
-        std::unique_lock<std::shared_mutex> lock(mutex);
-        return setSensorPublishIntervalInternal(interval);
-    }
-
-    float getTemperatureOffset() const { 
-        std::shared_lock<std::shared_mutex> lock(mutex);
-        return cachedConfig.temperatureOffset.value_or(ConfigConstants::DEFAULT_TEMP_OFFSET);
-    }
-
-    uint32_t getTelemetryInterval() const { 
-        std::shared_lock<std::shared_mutex> lock(mutex);
-        return cachedConfig.telemetryInterval.value_or(ConfigConstants::DEFAULT_TELEMETRY_INTERVAL);
-    }
-
-    uint32_t getSensorUpdateInterval() const { 
-        std::shared_lock<std::shared_mutex> lock(mutex);
-        return cachedConfig.sensorUpdateInterval.value_or(ConfigConstants::DEFAULT_SENSOR_UPDATE_INTERVAL);
-    }
-
-    uint32_t getLCDUpdateInterval() const { 
-        std::shared_lock<std::shared_mutex> lock(mutex);
-        return cachedConfig.lcdUpdateInterval.value_or(ConfigConstants::DEFAULT_LCD_UPDATE_INTERVAL);
-    }
-
-    uint32_t getSensorPublishInterval() const {
-        std::shared_lock<std::shared_mutex> lock(mutex);
-        return cachedConfig.sensorPublishInterval.value_or(ConfigConstants::DEFAULT_SENSOR_PUBLISH_INTERVAL);
-    }
-
-    SensorConfig getSensorConfig(size_t index) const { 
-        std::shared_lock<std::shared_mutex> lock(mutex);
-        if (index < RELAY_COUNT) {
-            return cachedConfig.sensorConfigs[index].value_or(SensorConfig{
-                ConfigConstants::DEFAULT_THRESHOLD,
-                ConfigConstants::DEFAULT_ACTIVATION_PERIOD,
-                ConfigConstants::DEFAULT_WATERING_INTERVAL
-            });
+    void setSensorConfig(size_t index, const SensorConfig& config) {
+        if (index >= ConfigConstants::RELAY_COUNT) {
+            logger.log("ConfigManager", "ERROR", "Invalid sensor index: " + std::to_string(index));
+            return;
         }
-        return SensorConfig{
-            ConfigConstants::DEFAULT_THRESHOLD,
-            ConfigConstants::DEFAULT_ACTIVATION_PERIOD,
-            ConfigConstants::DEFAULT_WATERING_INTERVAL
-        };
+
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        setValue(ConfigKey::SENSOR_THRESHOLD, config.threshold, index);
+        setValue(ConfigKey::SENSOR_ACTIVATION_PERIOD, config.activationPeriod, index);
+        setValue(ConfigKey::SENSOR_WATERING_INTERVAL, config.wateringInterval, index);
+        setValue(ConfigKey::SENSOR_ENABLED, config.sensorEnabled, index);
+        setValue(ConfigKey::RELAY_ENABLED, config.relayEnabled, index);
+        setValue(ConfigKey::SENSOR_PIN, config.sensorPin, index);
+        setValue(ConfigKey::RELAY_PIN, config.relayPin, index);
+
+        notifyObservers(ConfigKey::SENSOR_THRESHOLD);
     }
 
-    void addObserver(const std::string& key, ObserverCallback callback) {
+    void setSoftwareConfig(const SoftwareConfig& config) {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        setValue(ConfigKey::TEMP_OFFSET, config.tempOffset);
+        setValue(ConfigKey::TELEMETRY_INTERVAL, config.telemetryInterval);
+        setValue(ConfigKey::SENSOR_UPDATE_INTERVAL, config.sensorUpdateInterval);
+        setValue(ConfigKey::LCD_UPDATE_INTERVAL, config.lcdUpdateInterval);
+        setValue(ConfigKey::SENSOR_PUBLISH_INTERVAL, config.sensorPublishInterval);
+    }
+
+    std::optional<SensorConfig> getSensorConfig(size_t index) const {
+        if (index >= ConfigConstants::RELAY_COUNT) {
+            logger.log("ConfigManager", "ERROR", "Invalid sensor index: " + std::to_string(index));
+            return std::nullopt;
+        }
+
+        std::shared_lock<std::shared_mutex> lock(mutex);
+        SensorConfig config;
+        config.threshold = std::get<float>(getValue(ConfigKey::SENSOR_THRESHOLD, index));
+        config.activationPeriod = std::get<uint32_t>(getValue(ConfigKey::SENSOR_ACTIVATION_PERIOD, index));
+        config.wateringInterval = std::get<uint32_t>(getValue(ConfigKey::SENSOR_WATERING_INTERVAL, index));
+        config.sensorEnabled = std::get<bool>(getValue(ConfigKey::SENSOR_ENABLED, index));
+        config.relayEnabled = std::get<bool>(getValue(ConfigKey::RELAY_ENABLED, index));
+        config.sensorPin = std::get<int>(getValue(ConfigKey::SENSOR_PIN, index));
+        config.relayPin = std::get<int>(getValue(ConfigKey::RELAY_PIN, index));
+
+        return config;
+    }
+
+    SoftwareConfig getSoftwareConfig() const {
+        std::shared_lock<std::shared_mutex> lock(mutex);
+        SoftwareConfig config;
+        config.tempOffset = std::get<float>(getValue(ConfigKey::TEMP_OFFSET));
+        config.telemetryInterval = std::get<uint32_t>(getValue(ConfigKey::TELEMETRY_INTERVAL));
+        config.sensorUpdateInterval = std::get<uint32_t>(getValue(ConfigKey::SENSOR_UPDATE_INTERVAL));
+        config.lcdUpdateInterval = std::get<uint32_t>(getValue(ConfigKey::LCD_UPDATE_INTERVAL));
+        config.sensorPublishInterval = std::get<uint32_t>(getValue(ConfigKey::SENSOR_PUBLISH_INTERVAL));
+        return config;
+    }
+
+    std::vector<SensorConfig> getEnabledSensorConfigs() const {
+        std::shared_lock<std::shared_mutex> lock(mutex);
+        std::vector<SensorConfig> enabledConfigs;
+        for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; ++i) {
+            auto config = getSensorConfig(i);
+            if (config && config->sensorEnabled) {
+                enabledConfigs.push_back(*config);
+            }
+        }
+        return enabledConfigs;
+    }
+
+    void setHardwareConfig(const HardwareConfig& config) {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        setValue(ConfigKey::SDA_PIN, config.sdaPin);
+        setValue(ConfigKey::SCL_PIN, config.sclPin);
+        setValue(ConfigKey::FLOAT_SWITCH_PIN, config.floatSwitchPin);
+
+        for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; i++) {
+            setValue(ConfigKey::SENSOR_PIN, config.moistureSensorPins[i], i);
+            setValue(ConfigKey::RELAY_PIN, config.relayPins[i], i);
+        }
+
+        notifyObservers(ConfigKey::SDA_PIN);
+    }
+
+    HardwareConfig getHardwareConfig() const {
+        std::shared_lock<std::shared_mutex> lock(mutex);
+        HardwareConfig config;
+        config.sdaPin = std::get<int>(getValue(ConfigKey::SDA_PIN));
+        config.sclPin = std::get<int>(getValue(ConfigKey::SCL_PIN));
+        config.floatSwitchPin = std::get<int>(getValue(ConfigKey::FLOAT_SWITCH_PIN));
+
+        for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; i++) {
+            config.moistureSensorPins[i] = std::get<int>(getValue(ConfigKey::SENSOR_PIN, i));
+            config.relayPins[i] = std::get<int>(getValue(ConfigKey::RELAY_PIN, i));
+        }
+
+        return config;
+    }
+
+    void addObserver(ConfigKey key, ObserverCallback callback) {
         std::unique_lock<std::shared_mutex> lock(mutex);
         observers[key].push_back(callback);
     }
 
-    void removeObserver(const std::string& key, const ObserverCallback& callback) {
+    void removeObserver(ConfigKey key, const ObserverCallback& callback) {
         std::unique_lock<std::shared_mutex> lock(mutex);
         auto it = observers.find(key);
         if (it != observers.end()) {
@@ -194,165 +212,112 @@ public:
         }
     }
 
-    bool resetToDefault() {
+    void resetToDefault() {
         std::unique_lock<std::shared_mutex> lock(mutex);
-        cachedConfig = CachedConfig();
-        bool success = saveChanges();
-        if (success) {
-            notifyObservers("all");
-        }
-        return success;
-    }
-    
-    const CachedConfig& getCachedConfig() const {
-        std::shared_lock<std::shared_mutex> lock(mutex);
-        return cachedConfig;
+        preferences.clear();
+        notifyObservers(ConfigKey::SENSOR_THRESHOLD);
+        logger.log("ConfigManager", "INFO", "Configuration reset to default values");
     }
 
 private:
     Preferences preferences;
-    CachedConfig cachedConfig;
-    std::map<std::string, std::vector<ObserverCallback>> observers;
+    Logger& logger;
+    std::map<ConfigKey, std::vector<ObserverCallback>> observers;
     mutable std::shared_mutex mutex;
 
-    void loadCachedValues() {
-        cachedConfig.temperatureOffset = preferences.getFloat("tempOffset", ConfigConstants::DEFAULT_TEMP_OFFSET);
-        cachedConfig.telemetryInterval = preferences.getULong("telemetryInterval", ConfigConstants::DEFAULT_TELEMETRY_INTERVAL);
-        cachedConfig.sensorUpdateInterval = preferences.getULong("sensorUpdateInterval", ConfigConstants::DEFAULT_SENSOR_UPDATE_INTERVAL);
-        cachedConfig.lcdUpdateInterval = preferences.getULong("lcdUpdateInterval", ConfigConstants::DEFAULT_LCD_UPDATE_INTERVAL);
-        cachedConfig.sensorPublishInterval = preferences.getULong("sensorPublishInterval", ConfigConstants::DEFAULT_SENSOR_PUBLISH_INTERVAL);
-        for (size_t i = 0; i < RELAY_COUNT; i++) {
-            loadSensorConfig(i);
-        }
-    }
+    static const std::map<ConfigKey, std::string> keyMap;
+    static const std::map<ConfigKey, ConfigValue> defaultValues;
 
-    void loadSensorConfig(size_t index) {
-        std::string prefix = "sensor" + std::to_string(index) + "_";
-        SensorConfig config;
-        config.threshold = preferences.getFloat((prefix + "threshold").c_str(), ConfigConstants::DEFAULT_THRESHOLD);
-        config.activationPeriod = preferences.getULong((prefix + "activationPeriod").c_str(), ConfigConstants::DEFAULT_ACTIVATION_PERIOD);
-        config.wateringInterval = preferences.getULong((prefix + "wateringInterval").c_str(), ConfigConstants::DEFAULT_WATERING_INTERVAL);
-        cachedConfig.sensorConfigs[index] = config;
-    }
-
-    bool saveSensorConfig(size_t index, const SensorConfig& config) {
-        std::string prefix = "sensor" + std::to_string(index) + "_";
-        bool success = true;
-        success &= preferences.putFloat((prefix + "threshold").c_str(), config.threshold);
-        success &= preferences.putULong((prefix + "activationPeriod").c_str(), config.activationPeriod);
-        success &= preferences.putULong((prefix + "wateringInterval").c_str(), config.wateringInterval);
-        return success;
-    }
-
-    bool saveChanges() {
-        bool success = true;
-        if (cachedConfig.temperatureOffset) {
-            success &= preferences.putFloat("tempOffset", *cachedConfig.temperatureOffset);
-        }
-        if (cachedConfig.telemetryInterval) {
-            success &= preferences.putULong("telemetryInterval", *cachedConfig.telemetryInterval);
-        }
-        if (cachedConfig.sensorUpdateInterval) {
-            success &= preferences.putULong("sensorUpdateInterval", *cachedConfig.sensorUpdateInterval);
-        }
-        if (cachedConfig.lcdUpdateInterval) {
-            success &= preferences.putULong("lcdUpdateInterval", *cachedConfig.lcdUpdateInterval);
-        }
-        if (cachedConfig.sensorPublishInterval) {
-            success &= preferences.putULong("sensorPublishInterval", *cachedConfig.sensorPublishInterval);
-        }
-
-        for (size_t i = 0; i < RELAY_COUNT; i++) {
-            if (cachedConfig.sensorConfigs[i]) {
-                success &= saveSensorConfig(i, *cachedConfig.sensorConfigs[i]);
+    std::string getPreferenceKey(ConfigKey key, size_t index = 0) const {
+        auto it = keyMap.find(key);
+        if (it != keyMap.end()) {
+            const auto& baseKey = it->second;
+            if (key >= ConfigKey::SENSOR_THRESHOLD && key <= ConfigKey::RELAY_PIN) {
+                return "sensor" + std::to_string(index) + "_" + baseKey;
             }
+            return baseKey;
         }
-
-        if (success) {
-            cachedConfig = CachedConfig();  // Clear all optionals after successful save
-            notifyObservers("all");  // Notify that all values have been saved
-        }
-        return success;
+        return ""; // Return empty string for unknown keys
     }
 
-    void notifyObservers(const std::string& key) {
+    bool setValueInternal(const std::string& key, const ConfigValue& value) {
+        return std::visit([&](auto&& arg) -> bool {
+            using T = std::decay_t<decltype(arg)>;
+            if constexpr (std::is_same_v<T, bool>) {
+                return preferences.putBool(key.c_str(), arg);
+            } else if constexpr (std::is_same_v<T, int>) {
+                return preferences.putInt(key.c_str(), arg);
+            } else if constexpr (std::is_same_v<T, float>) {
+                return preferences.putFloat(key.c_str(), arg);
+            } else if constexpr (std::is_same_v<T, uint32_t>) {
+                return preferences.putULong(key.c_str(), arg);
+            }
+            return false;
+        }, value);
+    }
+
+    std::optional<ConfigValue> getValueInternal(const std::string& key) const {
+        // We need to remove const for these calls due to Preferences API limitations
+        Preferences& mutablePreferences = const_cast<Preferences&>(preferences);
+
+        if (!mutablePreferences.isKey(key.c_str())) {
+            return std::nullopt;
+        }
+
+        switch (mutablePreferences.getType(key.c_str())) {
+            case PT_I32: return mutablePreferences.getInt(key.c_str());
+            case PT_U32: return static_cast<uint32_t>(mutablePreferences.getULong(key.c_str()));
+            case PT_BLOB: return mutablePreferences.getFloat(key.c_str());
+            case PT_U8: return static_cast<bool>(mutablePreferences.getUChar(key.c_str()) != 0);
+            default: return std::nullopt;
+        }
+    }
+
+    void notifyObservers(ConfigKey key) {
         auto it = observers.find(key);
         if (it != observers.end()) {
             for (const auto& callback : it->second) {
                 callback(key);
             }
         }
-        // Also notify "all" observers
-        it = observers.find("all");
-        if (it != observers.end()) {
-            for (const auto& callback : it->second) {
-                callback(key);
-            }
-        }
     }
+};
 
-    template<typename T>
-    bool isInRange(T value, T min, T max) {
-        return value >= min && value <= max;
-    }
+// Define the static member outside the class
+inline const std::map<ConfigManager::ConfigKey, std::string> ConfigManager::keyMap = {
+    {ConfigKey::SENSOR_THRESHOLD, "threshold"},
+    {ConfigKey::SENSOR_ACTIVATION_PERIOD, "activationPeriod"},
+    {ConfigKey::SENSOR_WATERING_INTERVAL, "wateringInterval"},
+    {ConfigKey::SENSOR_ENABLED, "sensorEnabled"},
+    {ConfigKey::RELAY_ENABLED, "relayEnabled"},
+    {ConfigKey::SENSOR_PIN, "sensorPin"},
+    {ConfigKey::RELAY_PIN, "relayPin"},
+    {ConfigKey::SDA_PIN, "sdaPin"},
+    {ConfigKey::SCL_PIN, "sclPin"},
+    {ConfigKey::FLOAT_SWITCH_PIN, "floatSwitchPin"},
+    {ConfigKey::TEMP_OFFSET, "tempOffset"},
+    {ConfigKey::TELEMETRY_INTERVAL, "telemetryInterval"},
+    {ConfigKey::SENSOR_UPDATE_INTERVAL, "sensorUpdateInterval"},
+    {ConfigKey::LCD_UPDATE_INTERVAL, "lcdPublishInterval"},
+    {ConfigKey::SENSOR_PUBLISH_INTERVAL, "sensorPublishInterval"}    
+};
 
-    // Internal setter methods (without locks)
-    bool setLCDUpdateIntervalInternal(uint32_t interval) {
-        if (isInRange(interval, ConfigConstants::MIN_LCD_INTERVAL, ConfigConstants::MAX_LCD_INTERVAL)) {
-            cachedConfig.lcdUpdateInterval = interval;
-            notifyObservers("lcdUpdateInterval");
-            return true;
-        }
-        return false;
-    }
-
-    bool setSensorUpdateIntervalInternal(uint32_t interval) {
-        if (isInRange(interval, ConfigConstants::MIN_SENSORUPDATE_INTERVAL, ConfigConstants::MAX_SENSORUPDATE_INTERVAL)) {
-            cachedConfig.sensorUpdateInterval = interval;
-            notifyObservers("sensorUpdateInterval");
-            return true;
-        }
-        return false;
-    }
-
-    bool setTemperatureOffsetInternal(float offset) {
-        if (isInRange(offset, ConfigConstants::MIN_TEMP_OFFSET, ConfigConstants::MAX_TEMP_OFFSET)) {
-            cachedConfig.temperatureOffset = offset;
-            notifyObservers("temperatureOffset");
-            return true;
-        }
-        return false;
-    }
-
-    bool setTelemetryIntervalInternal(uint32_t interval) {
-        if (isInRange(interval, ConfigConstants::MIN_TELEMETRY_INTERVAL, ConfigConstants::MAX_TELEMETRY_INTERVAL)) {
-            cachedConfig.telemetryInterval = interval;
-            notifyObservers("telemetryInterval");
-            return true;
-        }
-        return false;
-    }
-
-    bool setSensorConfigInternal(size_t index, const SensorConfig& config) {
-        if (index < RELAY_COUNT &&
-            isInRange(config.threshold, ConfigConstants::MIN_THRESHOLD, ConfigConstants::MAX_THRESHOLD) &&
-            isInRange(config.activationPeriod, ConfigConstants::MIN_ACTIVATION_PERIOD, ConfigConstants::MAX_ACTIVATION_PERIOD) &&
-            isInRange(config.wateringInterval, ConfigConstants::MIN_WATERING_INTERVAL, ConfigConstants::MAX_WATERING_INTERVAL)) {
-            cachedConfig.sensorConfigs[index] = config;
-            notifyObservers("sensorConfig_" + std::to_string(index));
-            return true;
-        }
-        return false;
-    }
-
-    bool setSensorPublishIntervalInternal(uint32_t interval) {
-        if (isInRange(interval, ConfigConstants::MIN_SENSOR_PUBLISH_INTERVAL, ConfigConstants::MAX_SENSOR_PUBLISH_INTERVAL)) {
-            cachedConfig.sensorPublishInterval = interval;
-            notifyObservers("sensorPublishInterval");
-            return true;
-        }
-        return false;
-    }
+inline const std::map<ConfigManager::ConfigKey, ConfigManager::ConfigValue> ConfigManager::defaultValues = {
+    {ConfigKey::SENSOR_THRESHOLD, ConfigConstants::DEFAULT_THRESHOLD},
+    {ConfigKey::SENSOR_ACTIVATION_PERIOD, ConfigConstants::DEFAULT_ACTIVATION_PERIOD},
+    {ConfigKey::SENSOR_WATERING_INTERVAL, ConfigConstants::DEFAULT_WATERING_INTERVAL},
+    {ConfigKey::SENSOR_ENABLED, true},
+    {ConfigKey::RELAY_ENABLED, true},
+    {ConfigKey::SENSOR_PIN, ConfigConstants::DEFAULT_MOISTURE_SENSOR_PINS[0]},
+    {ConfigKey::RELAY_PIN, ConfigConstants::DEFAULT_RELAY_PINS[0]},
+    {ConfigKey::SDA_PIN, ConfigConstants::DEFAULT_SDA_PIN},
+    {ConfigKey::SCL_PIN, ConfigConstants::DEFAULT_SCL_PIN},
+    {ConfigKey::FLOAT_SWITCH_PIN, ConfigConstants::DEFAULT_FLOAT_SWITCH_PIN},
+    {ConfigKey::TEMP_OFFSET, ConfigConstants::DEFAULT_TEMP_OFFSET},
+    {ConfigKey::TELEMETRY_INTERVAL, ConfigConstants::DEFAULT_TELEMETRY_INTERVAL},
+    {ConfigKey::SENSOR_UPDATE_INTERVAL, ConfigConstants::DEFAULT_SENSOR_UPDATE_INTERVAL},
+    {ConfigKey::LCD_UPDATE_INTERVAL, ConfigConstants::DEFAULT_LCD_UPDATE_INTERVAL},
+    {ConfigKey::SENSOR_PUBLISH_INTERVAL, ConfigConstants::DEFAULT_SENSOR_PUBLISH_INTERVAL}
 };
 
 #endif // CONFIG_MANAGER_H

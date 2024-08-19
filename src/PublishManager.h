@@ -1,3 +1,5 @@
+// PublishManager.h
+
 #ifndef PUBLISH_MANAGER_H
 #define PUBLISH_MANAGER_H
 
@@ -25,8 +27,11 @@ private:
             SensorData data = sensorManager.getSensorData();
             JsonDocument doc;
             
-            for (int i = 0; i < 4; i++) {
-                doc["moisture" + String(i)] = data.moisture[i];
+            auto configs = configManager.getEnabledSensorConfigs();
+            for (const auto& config : configs) {
+                if (config.sensorEnabled) {
+                    doc["moisture_" + String(config.sensorPin)] = data.moisture[config.sensorPin];
+                }
             }
             doc["temperature"] = data.temperature;
             doc["pressure"] = data.pressure;
@@ -38,8 +43,10 @@ private:
             mqttManager.publish("esp32/sensor_data", payload.c_str());
 
             // Delay for the publish interval
-            uint32_t interval = configManager.getSensorPublishInterval();
-            vTaskDelay(pdMS_TO_TICKS(interval));
+            ConfigManager::ConfigValue interval = configManager.getValue(ConfigManager::ConfigKey::SENSOR_PUBLISH_INTERVAL);
+            // Directly extract the uint32_t value using std::get
+            uint32_t publishInterval = std::get<uint32_t>(interval);
+            vTaskDelay(pdMS_TO_TICKS(publishInterval));
         }
     }
 

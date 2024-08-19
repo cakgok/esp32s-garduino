@@ -48,7 +48,7 @@ private:
         currentDisplay = (currentDisplay + 1) % 3;
 
         // Update the timer interval for the next update
-        uint32_t newInterval = configManager.getLCDUpdateInterval();
+        auto newInterval = configManager.getSoftwareConfig().lcdUpdateInterval;
         xTimerChangePeriod(timer, pdMS_TO_TICKS(newInterval), 0);
     }
 
@@ -58,7 +58,7 @@ public:
         
         timer = xTimerCreate(
             "LCDUpdateTimer",
-            pdMS_TO_TICKS(configManager.getLCDUpdateInterval()),
+            pdMS_TO_TICKS(configManager.getSoftwareConfig().lcdUpdateInterval),
             pdFALSE,  // Auto-reload set to false
             this,
             timerCallback

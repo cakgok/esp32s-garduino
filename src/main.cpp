@@ -31,7 +31,7 @@ const ESPMQTTManager::Config mqttConfig = {
 
 Logger& logger = Logger::instance();
 ESPMQTTManager mqttManager(mqttConfig);
-ESPTelemetry espTelemetry(mqttManager, "esp8266/telemetry");
+ESPTelemetry espTelemetry(mqttManager, "esp32/telemetry");
 ESPTimeSetup timeSetup("pool.ntp.org", 0, 3600);
 
 // Initialize devices
@@ -48,6 +48,13 @@ SensorPublishTask publishTask(sensorManager, mqttManager, configManager);
 ESP32WebServer webServer(80, relayManager, sensorManager, configManager);
 ESP32WebServer* webServerPtr = nullptr;  // Declare the pointer at global scope
 
+// Initialize config
+ConfigManager::HardwareConfig hwConfig;
+ConfigManager::SensorConfig sensorConfigs[ConfigConstants::RELAY_COUNT];
+//ConfigManager::RelayConfig relayConfigs[ConfigConstants::RELAY_COUNT];
+//ConfigManager::Config config;
+
+
 void setup_wifi() {
   logger.log("Connecting to WiFi...");
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -56,7 +63,6 @@ void setup_wifi() {
     logger.log(".");
   }
 }
-
 void setupLittleFS() {
     if (!LittleFS.begin(false, "/littlefs", 10, "littlefs")) {
         logger.log("LittleFS Mount Failed");
@@ -64,26 +70,28 @@ void setupLittleFS() {
     }
     logger.log("LittleFS mounted successfully");
 }
-void setupSensors() {
-    Wire.begin(SDA_PIN, SCL_PIN);
+void setupI2C() {
+    Wire.begin(hwConfig.sdaPin, hwConfig.sclPin);
     lcd.init();
     lcd.backlight();
 }
-
 void setupRelayPins() {
-  for (int i = 0; i < RELAY_COUNT; i++) {
-        pinMode(RELAY_PINS[i], OUTPUT);
-        digitalWrite(RELAY_PINS[i], HIGH);
+    for (int i = 0; i < ConfigConstants::RELAY_COUNT; i++) {
+        pinMode(hwConfig.relayPins[i], INPUT);
+        digitalWrite(hwConfig.relayPins[i], HIGH);
+        pinMode(hwConfig.relayPins[i], OUTPUT);
     }
 }
 
 void setup() {
     Serial.begin(115200);                 
     logger.setFilterLevel(Logger::Level::INFO);
-    Logger::instance().log(Logger::Level::INFO, "This is an INFO log.");
     setup_wifi();
+    setupI2C();
     delay(100);
-    webServerPtr = &webServer;  // Initialize the pointer in setup()
+    configManager.begin("irrigation-config");
+    // Initialize the pointer
+    webServerPtr = &webServer;  
     // Set up the logger observer
     logger.addLogObserver([](std::string_view tag, Logger::Level level, std::string_view message) {
         if (webServerPtr) {  // Check if the pointer is valid
@@ -97,9 +105,8 @@ void setup() {
     delay(100);
     setupLittleFS();
     setupRelayPins();
-    sensorManager.setupFloatSwitch(FLOAT_SWITCH_PIN);
-    sensorManager.setupSensors(SDA_PIN, SCL_PIN);
-    sensorManager.setupMoistureSensors(MOISTURE_SENSOR_PINS);
+    sensorManager.setupFloatSwitch();
+    sensorManager.setupSensors();
     sensorManager.startSensorTask();
     webServer.begin();
     lcdManager.start();

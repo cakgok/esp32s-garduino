@@ -2,18 +2,17 @@
 #define SENSORMANAGER_H
 
 #include <mutex>
-#include <array>
+#include <map>
 #include <Adafruit_BMP085.h>
-#include <LiquidCrystal_I2C.h>
 #include "ConfigManager.h"
 #include <Wire.h>
 
 struct SensorData {
-    std::array<float, 4> moisture;
+    std::map<int, float> moisture;  // Key is the sensor pin
     float temperature;
     float pressure;
     bool waterLevel;
-    std::array<bool, 4> relayState;
+    std::map<int, bool> relayState;  // Key is the relay pin
 };
 
 class SensorManager {
@@ -22,24 +21,22 @@ private:
     std::mutex dataMutex;
     
     Adafruit_BMP085 bmp;
-    std::array<int, 4> moistureSensorPins;
-    int floatSwitchPin;
     ConfigManager& configManager;
 
     static void sensorTaskFunction(void* pvParameters);
     TaskHandle_t sensorTaskHandle;
 
+    int floatSwitchPin;
+
 public:
     SensorManager(ConfigManager& configManager)
         : configManager(configManager), sensorTaskHandle(nullptr) {}
 
-    void setupFloatSwitch(int pin);
-    void setupSensors(int sda_pin, int scl_pin);
-    void setupMoistureSensors(const std::array<int, 4>& pins);
-    void initLCD();
+    void setupFloatSwitch();
+    void setupSensors();
     void updateSensorData();
     SensorData getSensorData();
-    void startSensorTask(); // New method to start the sensor task
+    void startSensorTask();
 
 private:
     float readMoistureSensor(int sensorPin);

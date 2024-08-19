@@ -77,7 +77,8 @@
             "source_location": "cpp",
             "iostream": "cpp",
             "typeindex": "cpp",
-            "variant": "cpp"
+            "variant": "cpp",
+            "shared_mutex": "cpp"
         }
     }
 }
