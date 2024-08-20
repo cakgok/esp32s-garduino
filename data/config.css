@@ -12,7 +12,7 @@ body {
     border-radius: 10px;
     box-shadow: 0 0 10px rgba(0,0,0,0.1);
 }
-h1 {
+h1, h2 {
     color: #2c3e50;
     text-align: center;
 }
@@ -43,10 +43,10 @@ th {
     display: flex;
     align-items: center;
     justify-content: center;
-    opacity: 1; /* Changed from 0 to 1 to always show */
+    opacity: 1;
     transition: opacity 0.3s ease;
 }
-input[type="number"] {
+input[type="number"], input[type="checkbox"] {
     width: 80%;
     padding: 5px;
     border: 1px solid #ddd;
@@ -117,12 +117,21 @@ button:hover {
         box-shadow: 0 0 0 0 rgba(76, 175, 80, 0);
     }
 }
-
-/* New styles for showing input ranges on hover */
-.tooltip > span {
-    display: none;
+.sensor-config {
+    margin-bottom: 20px;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
 }
-
-.tooltip:hover > span {
-    display: inline;
+.sensor-config.disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+.checkbox-wrapper {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+.checkbox-wrapper label {
+    margin-left: 5px;
 }

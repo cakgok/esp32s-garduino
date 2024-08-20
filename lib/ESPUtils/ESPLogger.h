@@ -10,6 +10,8 @@
 #include <atomic>
 #include <cstdarg>
 #include <vector>
+#include <sstream>
+#include <type_traits>
 
 #ifdef ENABLE_SERIAL_PRINT
 #include <Arduino.h>
@@ -44,37 +46,41 @@ public:
         filterLevel.store(level, std::memory_order_relaxed);
     }
 
-    void log(std::string_view tag, Level level, const char* fmt, ...) {
+    // Helper type trait to detect if first argument is a format string
+    template<typename T, typename... Args>
+    struct is_format_string : std::false_type {};
+
+    template<typename... Args>
+    struct is_format_string<const char*, Args...> : std::true_type {};
+
+
+    // this approach assumes that if the first argument (after tag and level) is a const char*, it's a format string
+    // If you need to concatenate a const char* without treating it as a format string, 
+    // wrap it in a std::string or std::string_view.
+    template<typename... Args>
+    void log(std::string_view tag, Level level, Args&&... args) {
         if (level >= filterLevel.load(std::memory_order_relaxed)) {
-            va_list args;
-            va_start(args, fmt);
-            char message[LOG_SIZE];
-            vsnprintf(message, sizeof(message), fmt, args);
-            va_end(args);
-            addLog(tag, level, message);
+            if constexpr (is_format_string<std::decay_t<Args>...>::value) {
+                char message[LOG_SIZE];
+                snprintf(message, sizeof(message), std::forward<Args>(args)...);
+                addLog(tag, level, message);
+            } else {
+                std::ostringstream oss;
+                (oss << ... << std::forward<Args>(args));
+                addLog(tag, level, oss.str());
+            }
         }
     }
 
-    void log(Level level, const char* fmt, ...) {
-        if (level >= filterLevel.load(std::memory_order_relaxed)) {
-            va_list args;
-            va_start(args, fmt);
-            char message[LOG_SIZE];
-            vsnprintf(message, sizeof(message), fmt, args);
-            va_end(args);
-            addLog(DEFAULT_TAG, level, message);
-        }
+    // Overloads for different argument combinations
+    template<typename... Args>
+    void log(Level level, Args&&... args) {
+        log(DEFAULT_TAG, level, std::forward<Args>(args)...);
     }
 
-    void log(const char* fmt, ...) {
-        if (Level::INFO >= filterLevel.load(std::memory_order_relaxed)) {
-            va_list args;
-            va_start(args, fmt);
-            char message[LOG_SIZE];
-            vsnprintf(message, sizeof(message), fmt, args);
-            va_end(args);
-            addLog(DEFAULT_TAG, Level::INFO, message);
-        }
+    template<typename... Args>
+    void log(Args&&... args) {
+        log(DEFAULT_TAG, Level::INFO, std::forward<Args>(args)...);
     }
 
     [[nodiscard]] std::array<std::string_view, MAX_LOGS> getLogs() const {
@@ -100,7 +106,6 @@ public:
         return str.size() >= prefix.size() && 
                str.compare(0, prefix.size(), prefix) == 0;
     }
-
     std::vector<LogEntry> getChronologicalLogs() const {
         std::lock_guard<std::mutex> lock(logMutex);
         std::vector<LogEntry> result;
@@ -135,8 +140,6 @@ public:
         }
         return result;
     }
-
-
 
 private:
     std::array<char, MAX_LOGS * LOG_SIZE> buffer;
@@ -219,5 +222,6 @@ private:
     Logger(const Logger&) = delete;
     Logger& operator=(const Logger&) = delete;
 };
+using LogLevel = Logger::Level;
 
 #endif // ESP_LOGGER_H

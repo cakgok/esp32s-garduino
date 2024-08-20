@@ -37,7 +37,7 @@ ESPTimeSetup timeSetup("pool.ntp.org", 0, 3600);
 // Initialize devices
 Adafruit_BMP085 bmp;
 LiquidCrystal_I2C lcd(0x27, 16, 2);
-Preferences preferences;
+//Preferences preferences;
 WiFiClientSecure espClient;
 PubSubClient mqttClient(espClient);
 ConfigManager configManager;
@@ -51,9 +51,6 @@ ESP32WebServer* webServerPtr = nullptr;  // Declare the pointer at global scope
 // Initialize config
 ConfigManager::HardwareConfig hwConfig;
 ConfigManager::SensorConfig sensorConfigs[ConfigConstants::RELAY_COUNT];
-//ConfigManager::RelayConfig relayConfigs[ConfigConstants::RELAY_COUNT];
-//ConfigManager::Config config;
-
 
 void setup_wifi() {
   logger.log("Connecting to WiFi...");
@@ -87,9 +84,11 @@ void setup() {
     Serial.begin(115200);                 
     logger.setFilterLevel(Logger::Level::INFO);
     setup_wifi();
-    setupI2C();
     delay(100);
-    configManager.begin("irrigation-config");
+    configManager.begin("cfg");
+    hwConfig = configManager.getHardwareConfig();
+    delay(2000);
+    setupI2C();
     // Initialize the pointer
     webServerPtr = &webServer;  
     // Set up the logger observer
@@ -102,14 +101,14 @@ void setup() {
     timeSetup.setup();
     delay(500);
     mqttManager.setup();
-    delay(100);
+    delay(1000);
     setupLittleFS();
     setupRelayPins();
     sensorManager.setupFloatSwitch();
     sensorManager.setupSensors();
     sensorManager.startSensorTask();
     webServer.begin();
-    lcdManager.start();
+    //lcdManager.start();
     delay(1000);
     publishTask.start();
     logger.log("Setup complete");   

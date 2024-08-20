@@ -1,7 +1,0 @@
-{
-    "configuration": "FlashFreq=80,UploadSpeed=115200,DebugLevel=none,EraseFlash=none,PartitionScheme=default",
-    "board": "esp32:esp32:nodemcu-32s",
-    "programmer": "esptool",
-    "port": "COM3",
-    "sketch": "src\\ESP32new.ino"
-}

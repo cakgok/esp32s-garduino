@@ -5,11 +5,7 @@
         }
     ],
     "settings": {
-        "bg3ModHelper.rootModPath": "c:\\Users\\cemak\\Documents\\PlatformIO\\Projects\\esp32s-garduino",
-        "Codegeex.Chat.LanguagePreference": "English",
-        "Codegeex.Comment.LanguagePreference": "English",
-        "Codegeex.SidebarUI.LanguagePreference": "English",
-        "Codegeex.Privacy": false,
+
         "files.associations": {
             "new": "cpp",
             "arduino.h": "c",

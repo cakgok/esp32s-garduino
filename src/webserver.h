@@ -84,7 +84,7 @@ private:
         request->send(response);
     }
 
-    void ESP32WebServer::handlePostConfig(AsyncWebServerRequest *request) {
+    void handlePostConfig(AsyncWebServerRequest *request) {
         if (request->hasParam("config", true)) {
             String configJson = request->getParam("config", true)->value();
             JsonDocument doc;
@@ -113,15 +113,32 @@ private:
         request->send(response);
     }
 
-    void ESP32WebServer::handlePostRelay(AsyncWebServerRequest *request, JsonVariant &json) {
-        JsonObject jsonObj = json.as<JsonObject>();
-        
-        if (JsonHandler::handleRelayOperation(relayManager, jsonObj)) {
-            String response = "{\"success\":true,\"relayIndex\":" + String(jsonObj["relay"].as<int>()) + 
-                            ",\"message\":\"Relay " + String(jsonObj["active"].as<bool>() ? "activated" : "deactivated") + "\"}";
-            request->send(200, "application/json", response);
+    void handlePostRelay(AsyncWebServerRequest *request, JsonVariant &json) {
+        if (json.is<JsonObject>()) {
+            JsonObject jsonObj = json.as<JsonObject>();
+            
+            if (jsonObj.containsKey("relay") && jsonObj.containsKey("active")) {
+                int relayIndex = jsonObj["relay"].as<int>();
+                bool active = jsonObj["active"].as<bool>();
+                
+                if (relayIndex >= 0 && relayIndex < ConfigConstants::RELAY_COUNT) {
+                    bool success = active ? relayManager.activateRelay(relayIndex) : relayManager.deactivateRelay(relayIndex);
+                    
+                    if (success) {
+                        String response = "{\"success\":true,\"relayIndex\":" + String(relayIndex) + 
+                                        ",\"message\":\"Relay " + String(active ? "activated" : "deactivated") + "\"}";
+                        request->send(200, "application/json", response);
+                    } else {
+                        request->send(500, "application/json", "{\"success\":false,\"message\":\"Failed to toggle relay\"}");
+                    }
+                } else {
+                    request->send(400, "application/json", "{\"success\":false,\"message\":\"Invalid relay index\"}");
+                }
+            } else {
+                request->send(400, "application/json", "{\"success\":false,\"message\":\"Missing relay or active parameter\"}");
+            }
         } else {
-            request->send(400, "application/json", "{\"success\":false,\"message\":\"Failed to toggle relay\"}");
+            request->send(400, "application/json", "{\"success\":false,\"message\":\"Invalid JSON format\"}");
         }
     }
 

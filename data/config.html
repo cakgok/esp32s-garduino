@@ -11,7 +11,7 @@
         <h1>Garden Automation Configuration</h1>
 
         <h2>Global Settings</h2>
-        <table>
+        <table id="globalSettings">
             <tr>
                 <th>Setting</th>
                 <th>Current Value</th>
@@ -20,64 +20,77 @@
             </tr>
             <tr>
                 <td>
-                    <div class="tooltip">Temperature Offset
-                        <span class="tooltiptext">Range: -10.0 to 10.0</span>
+                    <label for="tempOffset">Temperature Offset</label>
+                    <span class="tooltip">Range: -10.0 to 10.0</span>
+                </td>
+                <td id="currentTempOffset" class="current-value"></td>
+                <td class="input-cell">
+                    <div class="input-wrapper">
+                        <input type="number" id="tempOffset" step="0.1" min="-10" max="10">
                     </div>
                 </td>
-                <td><span class="current-value" id="currentTempOffset"></span></td>
-                <td><input type="number" id="tempOffset" step="0.1" min="-10" max="10" data-default="0.0"></td>
                 <td>0.0</td>
             </tr>
             <tr>
                 <td>
-                    <div class="tooltip">Telemetry Interval (ms)
-                        <span class="tooltiptext">Range: 1000 to 3600000</span>
+                    <label for="telemetryInterval">Telemetry Interval (ms)</label>
+                    <span class="tooltip">Range: 1000 to 3600000</span>
+                </td>
+                <td id="currentTelemetryInterval" class="current-value"></td>
+                <td class="input-cell">
+                    <div class="input-wrapper">
+                        <input type="number" id="telemetryInterval" step="1000" min="1000" max="3600000">
                     </div>
                 </td>
-                <td><span class="current-value" id="currentTelemetryInterval"></span></td>
-                <td><input type="number" id="telemetryInterval" step="1000" min="1000" max="3600000" data-default="0.0"></td>
                 <td>60000</td>
             </tr>
             <tr>
                 <td>
-                    <div class="tooltip">Sensor Update Interval (ms)
-                        <span class="tooltiptext">Range: 100 to 10000</span>
+                    <label for="sensorUpdateInterval">Sensor Update Interval (ms)</label>
+                    <span class="tooltip">Range: 100 to 10000</span>
+                </td>
+                <td id="currentSensorUpdateInterval" class="current-value"></td>
+                <td class="input-cell">
+                    <div class="input-wrapper">
+                        <input type="number" id="sensorUpdateInterval" step="100" min="100" max="10000">
                     </div>
                 </td>
-                <td><span class="current-value" id="currentSensorUpdateInterval"></span></td>
-                <td><input type="number" id="sensorUpdateInterval" step="100" min="100" max="10000" data-default="0.0"></td>
                 <td>1000</td>
             </tr>
             <tr>
                 <td>
-                    <div class="tooltip">LCD Update Interval (ms)
-                        <span class="tooltiptext">Range: 100 to 10000</span>
+                    <label for="lcdUpdateInterval">LCD Update Interval (ms)</label>
+                    <span class="tooltip">Range: 100 to 10000</span>
+                </td>
+                <td id="currentLcdUpdateInterval" class="current-value"></td>
+                <td class="input-cell">
+                    <div class="input-wrapper">
+                        <input type="number" id="lcdUpdateInterval" step="100" min="100" max="10000">
                     </div>
                 </td>
-                <td><span class="current-value" id="currentLcdUpdateInterval"></span></td>
-                <td><input type="number" id="lcdUpdateInterval" step="100" min="100" max="10000" data-default="0.0"></td>
                 <td>1000</td>
             </tr>
             <tr>
                 <td>
-                    <div class="tooltip">Sensor Publish Interval (ms)
-                        <span class="tooltiptext">Range: 1000 to 3600000</span>
+                    <label for="sensorPublishInterval">Sensor Publish Interval (ms)</label>
+                    <span class="tooltip">Range: 1000 to 3600000</span>
+                </td>
+                <td id="currentSensorPublishInterval" class="current-value"></td>
+                <td class="input-cell">
+                    <div class="input-wrapper">
+                        <input type="number" id="sensorPublishInterval" step="1000" min="1000" max="3600000">
                     </div>
                 </td>
-                <td><span class="current-value" id="currentSensorPublishInterval"></span></td>
-                <td><input type="number" id="sensorPublishInterval" step="1000" min="1000" max="3600000" data-default="0.0"></td>
                 <td>60000</td>
             </tr>
         </table>
 
         <h2>Sensor Configurations</h2>
-        <div id="sensorConfigs">
-            <!-- Sensor configurations will be dynamically inserted here -->
-        </div>
+        <div id="sensorConfigs"></div>
 
-        <button id="saveButton" onclick="saveConfig()">Save Configuration</button>
-        <button onclick="resetToDefault()">Reset to Default</button>
-        <a href="dashboard.html" class="button">Return to Dashboard</a>
+        <button id="saveConfig">Save Configuration</button>
+        <button id="resetToDefault">Reset to Default</button>
+        <a href="index.html" class="button">Return to Dashboard</a>
     </div>
     <script src="config.js"></script>
 </body>

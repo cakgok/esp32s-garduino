@@ -25,10 +25,10 @@ function populateGlobalSettings(config) {
         { id: 'currentLcdUpdateInterval', value: formatDuration(config.lcdUpdateInterval) },
         { id: 'currentSensorPublishInterval', value: formatDuration(config.sensorPublishInterval) },
         { id: 'tempOffset', value: config.temperatureOffset },
-        { id: 'telemetryInterval', value: config.telemetryInterval / 1000 },
-        { id: 'sensorUpdateInterval', value: config.sensorUpdateInterval / 1000 },
-        { id: 'lcdUpdateInterval', value: config.lcdUpdateInterval / 1000 },
-        { id: 'sensorPublishInterval', value: config.sensorPublishInterval / 1000 }
+        { id: 'telemetryInterval', value: config.telemetryInterval },
+        { id: 'sensorUpdateInterval', value: config.sensorUpdateInterval },
+        { id: 'lcdUpdateInterval', value: config.lcdUpdateInterval },
+        { id: 'sensorPublishInterval', value: config.sensorPublishInterval }
     ];
 
     elements.forEach(({ id, value }) => {
@@ -43,12 +43,19 @@ function populateGlobalSettings(config) {
     });
 }
 
-// Function to create HTML for a single sensor configuration
 function createSensorConfigHTML(sensorConfig, index) {
     const sensorDiv = document.createElement('div');
-    sensorDiv.className = 'sensor-config';
+    sensorDiv.className = `sensor-config ${sensorConfig.sensorEnabled ? '' : 'disabled'}`;
     sensorDiv.innerHTML = `
         <h3>Sensor ${index + 1}</h3>
+        <div class="checkbox-wrapper">
+            <input type="checkbox" id="sensorEnabled_${index}" ${sensorConfig.sensorEnabled ? 'checked' : ''}>
+            <label for="sensorEnabled_${index}">Enable Sensor</label>
+        </div>
+        <div class="checkbox-wrapper">
+            <input type="checkbox" id="relayEnabled_${index}" ${sensorConfig.relayEnabled ? 'checked' : ''}>
+            <label for="relayEnabled_${index}">Enable Relay Control</label>
+        </div>
         <table>
             <tr>
                 <th>Setting</th>
@@ -67,31 +74,46 @@ function createSensorConfigHTML(sensorConfig, index) {
             </tr>
             <tr>
                 <td>
-                    <label for="activationPeriod_${index}">Activation Period</label>
-                    <span class="tooltip">Range: 1 to 60 seconds</span>
+                    <label for="activationPeriod_${index}">Activation Period (ms)</label>
+                    <span class="tooltip">Range: 1000 to 60000</span>
                 </td>
                 <td id="currentActivationPeriod_${index}">${formatDuration(sensorConfig.activationPeriod)}</td>
-                <td class="input-cell"><div class="input-wrapper"><input type="number" id="activationPeriod_${index}" step="1" min="1" max="60" value="${sensorConfig.activationPeriod / 1000}"></div></td>
-                <td>30 seconds</td>
+                <td class="input-cell"><div class="input-wrapper"><input type="number" id="activationPeriod_${index}" step="1000" min="1000" max="60000" value="${sensorConfig.activationPeriod}"></div></td>
+                <td>30000</td>
             </tr>
             <tr>
                 <td>
-                    <label for="wateringInterval_${index}">Watering Interval</label>
-                    <span class="tooltip">Range: 1 to 120 hours</span>
+                    <label for="wateringInterval_${index}">Watering Interval (ms)</label>
+                    <span class="tooltip">Range: 3600000 to 432000000</span>
                 </td>
                 <td id="currentWateringInterval_${index}">${formatDuration(sensorConfig.wateringInterval)}</td>
-                <td class="input-cell"><div class="input-wrapper"><input type="number" id="wateringInterval_${index}" step="1" min="1" max="120" value="${sensorConfig.wateringInterval / 3600000}"></div></td>
-                <td>24 hours</td>
+                <td class="input-cell"><div class="input-wrapper"><input type="number" id="wateringInterval_${index}" step="3600000" min="3600000" max="432000000" value="${sensorConfig.wateringInterval}"></div></td>
+                <td>86400000</td>
+            </tr>
+            <tr>
+                <td>
+                    <label for="sensorPin_${index}">Sensor Pin</label>
+                </td>
+                <td id="currentSensorPin_${index}">${sensorConfig.sensorPin}</td>
+                <td class="input-cell"><div class="input-wrapper"><input type="number" id="sensorPin_${index}" min="0" max="40" value="${sensorConfig.sensorPin}"></div></td>
+                <td>-</td>
+            </tr>
+            <tr>
+                <td>
+                    <label for="relayPin_${index}">Relay Pin</label>
+                </td>
+                <td id="currentRelayPin_${index}">${sensorConfig.relayPin}</td>
+                <td class="input-cell"><div class="input-wrapper"><input type="number" id="relayPin_${index}" min="0" max="40" value="${sensorConfig.relayPin}"></div></td>
+                <td>-</td>
             </tr>
         </table>
     `;
     return sensorDiv;
 }
 
-// Function to create and populate sensor configurations
 function createAndPopulateSensorConfigs(config) {
     const sensorConfigsContainer = document.getElementById('sensorConfigs');
-    sensorConfigsContainer.innerHTML = ''; // Clear existing content
+    sensorConfigsContainer.innerHTML = '';
 
     config.sensorConfigs.forEach((sensorConfig, index) => {
         const sensorDiv = createSensorConfigHTML(sensorConfig, index);
@@ -99,17 +121,20 @@ function createAndPopulateSensorConfigs(config) {
     });
 }
 
-// Function to add event listeners for change detection
 function addChangeListeners() {
     document.querySelectorAll('input').forEach(input => {
         input.addEventListener('input', () => {
             hasChanges = true;
             updateSaveButton();
+            if (input.type === 'checkbox' && input.id.startsWith('sensorEnabled_')) {
+                const index = input.id.split('_')[1];
+                const sensorDiv = document.querySelector(`.sensor-config:nth-child(${parseInt(index) + 1})`);
+                sensorDiv.classList.toggle('disabled', !input.checked);
+            }
         });
     });
 }
 
-// Main function to populate the form
 function populateForm(config) {
     populateGlobalSettings(config);
     createAndPopulateSensorConfigs(config);
@@ -131,21 +156,25 @@ function formatDuration(ms) {
 }
 
 function updateSaveButton() {
-    const saveButton = document.getElementById('saveButton');
+    const saveButton = document.getElementById('saveConfig');
     saveButton.classList.toggle('active', hasChanges);
 }
 
 async function saveConfig() {
     const newConfig = {
         temperatureOffset: parseFloat(document.getElementById('tempOffset').value),
-        telemetryInterval: parseInt(document.getElementById('telemetryInterval').value) * 1000,
-        sensorUpdateInterval: parseInt(document.getElementById('sensorUpdateInterval').value) * 1000,
-        lcdUpdateInterval: parseInt(document.getElementById('lcdUpdateInterval').value) * 1000,
-        sensorPublishInterval: parseInt(document.getElementById('sensorPublishInterval').value) * 1000,
+        telemetryInterval: parseInt(document.getElementById('telemetryInterval').value),
+        sensorUpdateInterval: parseInt(document.getElementById('sensorUpdateInterval').value),
+        lcdUpdateInterval: parseInt(document.getElementById('lcdUpdateInterval').value),
+        sensorPublishInterval: parseInt(document.getElementById('sensorPublishInterval').value),
         sensorConfigs: currentConfig.sensorConfigs.map((_, index) => ({
             threshold: parseFloat(document.getElementById(`threshold_${index}`).value),
-            activationPeriod: parseInt(document.getElementById(`activationPeriod_${index}`).value) * 1000,
-            wateringInterval: parseInt(document.getElementById(`wateringInterval_${index}`).value) * 3600000 // Convert from hours to milliseconds
+            activationPeriod: parseInt(document.getElementById(`activationPeriod_${index}`).value),
+            wateringInterval: parseInt(document.getElementById(`wateringInterval_${index}`).value),
+            sensorEnabled: document.getElementById(`sensorEnabled_${index}`).checked,
+            relayEnabled: document.getElementById(`relayEnabled_${index}`).checked,
+            sensorPin: parseInt(document.getElementById(`sensorPin_${index}`).value),
+            relayPin: parseInt(document.getElementById(`relayPin_${index}`).value)
         }))
     };
 
@@ -155,7 +184,7 @@ async function saveConfig() {
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ config: newConfig }),
+            body: JSON.stringify(newConfig),
         });
 
         if (!response.ok) {
@@ -174,15 +203,20 @@ async function saveConfig() {
 async function resetToDefault() {
     if (confirm('Are you sure you want to reset to default settings? This action cannot be undone.')) {
         try {
-            const response = await fetch('/api/defaultConfig');
+            const response = await fetch('/api/resetToDefault', {
+                method: 'POST',
+            });
             if (!response.ok) {
-                throw new Error('Failed to fetch default configuration');
+                throw new Error('Failed to reset to default configuration');
             }
-            const defaultConfig = await response.json();
-            populateForm(defaultConfig);
+            alert('Configuration reset to default successfully');
+            fetchConfig(); // Refresh the displayed configuration
         } catch (error) {
             console.error('Error:', error);
-            alert('Failed to load default configuration. Please try again.');
+            alert('Failed to reset to default configuration. Please try again.');
         }
     }
 }
+
+document.getElementById('saveConfig').addEventListener('click', saveConfig);
+document.getElementById('resetToDefault').addEventListener('click', resetToDefault);

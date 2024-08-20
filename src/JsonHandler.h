@@ -59,15 +59,19 @@ public:
             updateSoftwareConfig(swConfig, doc);
             configManager.setSoftwareConfig(swConfig);
         }
-
+        
         if (doc.containsKey("sensorConfigs")) {
-            JsonArray sensorConfigs = doc["sensorConfigs"];
+            JsonArrayConst sensorConfigs = doc["sensorConfigs"].as<JsonArrayConst>();
             for (size_t i = 0; i < std::min(sensorConfigs.size(), static_cast<size_t>(ConfigConstants::RELAY_COUNT)); i++) {
-                auto currentConfig = configManager.getSensorConfig(i);
-                if (currentConfig) {
+                if (auto currentConfig = configManager.getSensorConfig(i)) {
                     ConfigManager::SensorConfig newConfig = *currentConfig;
-                    if (updateSensorConfig(newConfig, sensorConfigs[i])) {
-                        configManager.setSensorConfig(i, newConfig);
+                    if (sensorConfigs[i].is<JsonObjectConst>()) {
+                        JsonObjectConst sensorConfig = sensorConfigs[i].as<JsonObjectConst>();
+                        if (updateSensorConfig(newConfig, sensorConfig)) {
+                            configManager.setSensorConfig(i, newConfig);
+                        } else {
+                            return false;
+                        }
                     } else {
                         return false;
                     }
@@ -76,21 +80,6 @@ public:
         }
 
         return true;
-    }
-
-    static bool handleRelayOperation(RelayManager& relayManager, const JsonObject& jsonObj) {
-        if (!jsonObj.containsKey("relay") || !jsonObj.containsKey("active")) {
-            return false;
-        }
-
-        int relayIndex = jsonObj["relay"];
-        bool active = jsonObj["active"];
-
-        if (relayIndex < 0 || relayIndex >= ConfigConstants::RELAY_COUNT) {
-            return false;
-        }
-
-        return active ? relayManager.activateRelay(relayIndex) : relayManager.deactivateRelay(relayIndex);
     }
 
 private:
@@ -133,7 +122,7 @@ private:
         if (doc.containsKey("sensorPublishInterval")) config.sensorPublishInterval = doc["sensorPublishInterval"].as<uint32_t>();
     }
 
-    static bool updateSensorConfig(ConfigManager::SensorConfig& config, const JsonObject& jsonConfig) {
+    static bool updateSensorConfig(ConfigManager::SensorConfig& config, const JsonDocument& jsonConfig) {
         if (jsonConfig.containsKey("threshold")) config.threshold = jsonConfig["threshold"].as<float>();
         if (jsonConfig.containsKey("activationPeriod")) config.activationPeriod = jsonConfig["activationPeriod"].as<uint32_t>();
         if (jsonConfig.containsKey("wateringInterval")) config.wateringInterval = jsonConfig["wateringInterval"].as<uint32_t>();
