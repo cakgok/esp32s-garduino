@@ -61,7 +61,7 @@ public:
         SENSOR_PUBLISH_INTERVAL
     };
 
-    using ConfigValue = std::variant<bool, int, float, uint32_t>;
+    using ConfigValue = std::variant<bool, int, float, uint32_t, std::array<int, ConfigConstants::RELAY_COUNT>>;
 
     struct ConfigInfo {
         std::string prefKey;
@@ -84,15 +84,22 @@ public:
     bool begin(const char* name = "cf") {
         bool result = preferences.begin(name, false);
         if (result) {
-            // Check if this is the first run
-            if (preferences.isKey("initialized")) {
-                logger.log(LogLevel::INFO, "Config already initialized");
-            } else {
+            if (!preferences.isKey("initialized")) {
                 logger.log(LogLevel::INFO, "First run, initializing default values");
                 initializeDefaultValues();
                 preferences.putBool("initialized", true);
+            } else {
+                logger.log(LogLevel::INFO, "Config already initialized");
             }
         }
+        // Debug output
+        for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; ++i) {
+            int sensorPin = std::get<int>(getValue(ConfigKey::SENSOR_PIN, i));
+            int relayPin = std::get<int>(getValue(ConfigKey::RELAY_PIN, i));
+            logger.log(LogLevel::DEBUG, "Sensor " + std::to_string(i) + " pin: " + std::to_string(sensorPin) +
+                                        ", Relay " + std::to_string(i) + " pin: " + std::to_string(relayPin));
+        }
+
         return result;
     }
 
@@ -103,17 +110,13 @@ public:
 
     void initializeDefaultValues() {
         for (const auto& [key, info] : configMap) {
-            if (key >= ConfigKey::SENSOR_THRESHOLD && key <= ConfigKey::RELAY_PIN) {
+            if (key == ConfigKey::SENSOR_PIN || key == ConfigKey::RELAY_PIN) {
+                const auto& pinArray = std::get<std::array<int, ConfigConstants::RELAY_COUNT>>(info.defaultValue);
                 for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; ++i) {
                     std::string prefKey = getPrefKey(info.prefKey, i);
                     if (!preferences.isKey(prefKey.c_str())) {
-                        if (key == ConfigKey::SENSOR_PIN) {
-                            setValueInternal(prefKey, ConfigConstants::DEFAULT_MOISTURE_SENSOR_PINS[i]);
-                        } else if (key == ConfigKey::RELAY_PIN) {
-                            setValueInternal(prefKey, ConfigConstants::DEFAULT_RELAY_PINS[i]);
-                        } else {
-                            setValueInternal(prefKey, info.defaultValue);
-                        }
+                        setValueInternal(prefKey, pinArray[i]);
+                        logger.log(LogLevel::DEBUG, "Initialized " + info.prefKey + " " + std::to_string(i) + " to " + std::to_string(pinArray[i]));
                     }
                 }
             } else {
@@ -124,6 +127,7 @@ public:
             }
         }
     }
+
 
     template<typename T>
     void setValue(ConfigKey key, T value, size_t index = 0) {
@@ -146,9 +150,19 @@ public:
     ConfigValue getValue(ConfigKey key, size_t index = 0) const {
         std::shared_lock<std::shared_mutex> lock(mutex);
         const auto& info = configMap.at(key);
-        std::string prefKey = getPrefKey(info.prefKey, index);
-        auto value = getValueInternal(prefKey);
-        return value.value_or(info.defaultValue);
+        if (key == ConfigKey::SENSOR_PIN || key == ConfigKey::RELAY_PIN) {
+            std::string prefKey = getPrefKey(info.prefKey, index);
+            auto value = getValueInternal(prefKey);
+            if (value.has_value()) {
+                return std::get<int>(*value);
+            } else {
+                return std::get<std::array<int, ConfigConstants::RELAY_COUNT>>(info.defaultValue)[index];
+            }
+        } else {
+            std::string prefKey = getPrefKey(info.prefKey);
+            auto value = getValueInternal(prefKey);
+            return value.value_or(info.defaultValue);
+        }
     }
 
     void setSensorConfig(size_t index, const SensorConfig& config) {
@@ -283,11 +297,10 @@ private:
 
     std::string getPrefKey(const std::string& baseKey, size_t index = 0) const {
         if (index > 0) {
-            return "sensor" + std::to_string(index) + "_" + baseKey;
+            return baseKey + "_" + std::to_string(index);
         }
         return baseKey;
     }
-
 
     bool setValueInternal(const std::string& key, const ConfigValue& value) {
         return std::visit([&](auto&& arg) -> bool {
@@ -300,13 +313,15 @@ private:
                 return preferences.putFloat(key.c_str(), arg);
             } else if constexpr (std::is_same_v<T, uint32_t>) {
                 return preferences.putULong(key.c_str(), arg);
+            } else if constexpr (std::is_same_v<T, std::array<int, ConfigConstants::RELAY_COUNT>>) {
+                // We don't store the entire array, as we're storing individual values
+                return false;
             }
             return false;
         }, value);
     }
 
     std::optional<ConfigValue> getValueInternal(const std::string& key) const {
-        // We need to remove const for these calls due to Preferences API limitations
         Preferences& mutablePreferences = const_cast<Preferences&>(preferences);
 
         if (!mutablePreferences.isKey(key.c_str())) {
@@ -321,6 +336,7 @@ private:
             default: return std::nullopt;
         }
     }
+
 
     static const std::map<ConfigKey, Range<float>> floatRanges;
     static const std::map<ConfigKey, Range<uint32_t>> uint32Ranges;
@@ -355,8 +371,8 @@ inline const std::map<ConfigManager::ConfigKey, ConfigManager::ConfigInfo> Confi
     {ConfigKey::SENSOR_WATERING_INTERVAL, {"wi", ConfigConstants::DEFAULT_WATERING_INTERVAL, ConfigConstants::MIN_WATERING_INTERVAL, ConfigConstants::MAX_WATERING_INTERVAL}},
     {ConfigKey::SENSOR_ENABLED, {"se", true, std::nullopt, std::nullopt}},
     {ConfigKey::RELAY_ENABLED, {"re", true, std::nullopt, std::nullopt}},
-    {ConfigKey::SENSOR_PIN, {"sp", ConfigConstants::DEFAULT_MOISTURE_SENSOR_PINS[0], std::nullopt, std::nullopt}},
-    {ConfigKey::RELAY_PIN, {"rp", ConfigConstants::DEFAULT_RELAY_PINS[0], std::nullopt, std::nullopt}},
+    {ConfigKey::SENSOR_PIN, {"sp", ConfigConstants::DEFAULT_MOISTURE_SENSOR_PINS, std::nullopt, std::nullopt}},
+    {ConfigKey::RELAY_PIN, {"rp", ConfigConstants::DEFAULT_RELAY_PINS, std::nullopt, std::nullopt}},
     {ConfigKey::SDA_PIN, {"sda", ConfigConstants::DEFAULT_SDA_PIN, std::nullopt, std::nullopt}},
     {ConfigKey::SCL_PIN, {"scl", ConfigConstants::DEFAULT_SCL_PIN, std::nullopt, std::nullopt}},
     {ConfigKey::FLOAT_SWITCH_PIN, {"fsp", ConfigConstants::DEFAULT_FLOAT_SWITCH_PIN, std::nullopt, std::nullopt}},
@@ -366,5 +382,6 @@ inline const std::map<ConfigManager::ConfigKey, ConfigManager::ConfigInfo> Confi
     {ConfigKey::LCD_UPDATE_INTERVAL, {"lui", ConfigConstants::DEFAULT_LCD_UPDATE_INTERVAL, ConfigConstants::MIN_LCD_INTERVAL, ConfigConstants::MAX_LCD_INTERVAL}},
     {ConfigKey::SENSOR_PUBLISH_INTERVAL, {"spi", ConfigConstants::DEFAULT_SENSOR_PUBLISH_INTERVAL, ConfigConstants::MIN_SENSOR_PUBLISH_INTERVAL, ConfigConstants::MAX_SENSOR_PUBLISH_INTERVAL}}
 };
+
 
 #endif // CONFIG_MANAGER_H

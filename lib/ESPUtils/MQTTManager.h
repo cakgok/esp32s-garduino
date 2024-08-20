@@ -38,28 +38,39 @@ public:
     }
 
     bool reconnect() {
+        static unsigned long lastAttemptTime = 0;
+        static int retryCount = 0;
+        unsigned long now = millis();
+
         if (mqttClient.connected()) {
+            retryCount = 0;
             return true;
         }
-        logger.log(Logger::Level::INFO, "Attempting MQTT connection...");
-        
-        String clientId;
-        if (config.clientID && strcmp(config.clientID, "random") != 0) {
-            clientId = config.clientID;
-        } else {
-            clientId = "ESPClient-" + String(random(0xffff), HEX);
+
+        if (now - lastAttemptTime < 5000) {
+            return false; // Don't attempt to reconnect more often than every 5 seconds
         }
-        
+
+        lastAttemptTime = now;
+        logger.log(Logger::Level::INFO, "Attempting MQTT connection...");
+
+        String clientId = (config.clientID && strcmp(config.clientID, "random") != 0) 
+            ? config.clientID 
+            : "ESPClient-" + String(random(0xffff), HEX);
+
         logger.log(Logger::Level::INFO, "Using client ID: {}", clientId.c_str());
-        
+
         if (mqttClient.connect(clientId.c_str(), config.username, config.password)) {
             logger.log(Logger::Level::INFO, "Connected to MQTT broker");
+            retryCount = 0;
             return true;
         } else {
-            logger.log(Logger::Level::ERROR, "Failed to connect to MQTT broker, rc={}", mqttClient.state());
+            retryCount++;
+            logger.log(Logger::Level::ERROR, "Failed to connect to MQTT broker, rc={}, retry={}", mqttClient.state(), retryCount);
             return false;
         }
     }
+
 
     bool publish(const char* topic, const char* payload) {
         if (!mqttClient.connected() && !reconnect()) {
@@ -98,6 +109,10 @@ public:
 
     PubSubClient& getClient() {
         return mqttClient;
+    }
+
+    bool isConnected() {
+        return mqttClient.connected();
     }
 
 private:

@@ -8,34 +8,35 @@
 #include "SensorManager.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "esp_log.h"
+#include "ESPLogger.h"
 
 #define TAG "RelayManager"
 
 class RelayManager {
 public:
    RelayManager(ConfigManager& configManager, SensorManager& sensorManager)
-        : configManager(configManager), sensorManager(sensorManager), activeRelay(-1) {
+        : logger(Logger::instance()), configManager(configManager), sensorManager(sensorManager), activeRelay(-1) {
         auto hwConfig = configManager.getHardwareConfig();
         for (int pin : hwConfig.relayPins) {
-            pinMode(pin, OUTPUT);
+            pinMode(pin, INPUT);
             digitalWrite(pin, HIGH);  // Assuming relays are active LOW
+            pinMode(pin, OUTPUT);
+            relayStates[pin] = false; // Initialize relay states
         }
-        ESP_LOGI(TAG, "RelayManager initialized");
+        logger.log(LogLevel::INFO, "RelayManager initialized");
     }
 
     
     bool activateRelay(int relayPin) {
         std::lock_guard<std::mutex> lock(relayMutex);
-        auto configs = configManager.getEnabledSensorConfigs();
-        auto it = std::find_if(configs.begin(), configs.end(),
-                               [relayPin](const ConfigManager::SensorConfig& cfg) { return cfg.relayPin == relayPin; });
-        if (it == configs.end()) {
-            ESP_LOGE(TAG, "Invalid relay pin: %d", relayPin);
+        auto hwConfig = configManager.getHardwareConfig();
+        auto it = std::find(hwConfig.relayPins.begin(), hwConfig.relayPins.end(), relayPin);
+        if (it == hwConfig.relayPins.end()) {
+            logger.log(LogLevel::ERROR, "Invalid relay pin: %d", relayPin);
             return false;
         }
         if (!sensorManager.getSensorData().waterLevel) {
-            ESP_LOGW(TAG, "Water level too low, cannot activate relay on pin %d", relayPin);
+            logger.log(LogLevel::WARNING, "Water level too low, cannot activate relay on pin %d", relayPin);
             return false;
         }
 
@@ -49,9 +50,17 @@ public:
         relayStates[relayPin] = true;
         lastWateringTime[relayPin] = esp_timer_get_time();
         setRelayHardwareState(relayPin, true);
-        ESP_LOGI(TAG, "Relay on pin %d activated", relayPin);
+        logger.log(LogLevel::INFO, "Relay on pin %d activated", relayPin);
 
-        scheduleDeactivation(relayPin, it->activationPeriod);
+        // Find the corresponding SensorConfig for this relay
+        auto configs = configManager.getEnabledSensorConfigs();
+        auto configIt = std::find_if(configs.begin(), configs.end(),
+                               [relayPin](const ConfigManager::SensorConfig& cfg) { return cfg.relayPin == relayPin; });
+        if (configIt != configs.end()) {
+            scheduleDeactivation(relayPin, configIt->activationPeriod);
+        } else {
+            logger.log(LogLevel::WARNING, "No matching sensor config found for relay pin %d", relayPin);
+        }
         return true;
     }
 
@@ -78,6 +87,7 @@ private:
     std::map<int, TaskHandle_t> deactivationTasks;
     std::mutex relayMutex;
     int activeRelay;
+    Logger& logger;
 
     bool deactivateRelayInternal(int relayPin) {
         auto it = deactivationTasks.find(relayPin);

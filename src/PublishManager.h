@@ -16,37 +16,48 @@ private:
     ESPMQTTManager& mqttManager;
     ConfigManager& configManager;
     TaskHandle_t taskHandle;
+    static constexpr uint32_t STARTUP_DELAY_MS = 10000; // 10 second delay
 
     static void taskFunction(void* pvParameters) {
         SensorPublishTask* self = static_cast<SensorPublishTask*>(pvParameters);
-        self->publishSensorData();
+        self->delayedStart();
+    }
+
+    void delayedStart() {
+        Logger::instance().log(Logger::Level::INFO, "Waiting before starting sensor publish task...");
+        vTaskDelay(pdMS_TO_TICKS(STARTUP_DELAY_MS));
+        Logger::instance().log(Logger::Level::INFO, "Starting sensor publish task");
+        publishSensorData();
     }
 
     void publishSensorData() {
         while (true) {
-            SensorData data = sensorManager.getSensorData();
-            JsonDocument doc;
-            
-            auto configs = configManager.getEnabledSensorConfigs();
-            for (const auto& config : configs) {
-                if (config.sensorEnabled) {
-                    doc["moisture_" + String(config.sensorPin)] = data.moisture[config.sensorPin];
+            if (mqttManager.isConnected()) {
+                SensorData data = sensorManager.getSensorData();
+                JsonDocument doc;
+                
+                auto configs = configManager.getEnabledSensorConfigs();
+                for (const auto& config : configs) {
+                    if (config.sensorEnabled) {
+                        doc["moisture_" + String(config.sensorPin)] = data.moisture[config.sensorPin];
+                    }
                 }
+                doc["temperature"] = data.temperature;
+                doc["pressure"] = data.pressure;
+                doc["waterLevel"] = data.waterLevel;
+
+                String payload;
+                serializeJson(doc, payload);
+                
+                mqttManager.publish("esp32/sensor_data", payload.c_str());
+
+                ConfigManager::ConfigValue interval = configManager.getValue(ConfigManager::ConfigKey::SENSOR_PUBLISH_INTERVAL);
+                uint32_t publishInterval = std::get<uint32_t>(interval);
+                vTaskDelay(pdMS_TO_TICKS(publishInterval));
+            } else {
+                Logger::instance().log(Logger::Level::WARNING, "MQTT not connected. Waiting before retry.");
+                vTaskDelay(pdMS_TO_TICKS(5000)); // Wait 5 seconds before checking connection again
             }
-            doc["temperature"] = data.temperature;
-            doc["pressure"] = data.pressure;
-            doc["waterLevel"] = data.waterLevel;
-
-            String payload;
-            serializeJson(doc, payload);
-            
-            mqttManager.publish("esp32/sensor_data", payload.c_str());
-
-            // Delay for the publish interval
-            ConfigManager::ConfigValue interval = configManager.getValue(ConfigManager::ConfigKey::SENSOR_PUBLISH_INTERVAL);
-            // Directly extract the uint32_t value using std::get
-            uint32_t publishInterval = std::get<uint32_t>(interval);
-            vTaskDelay(pdMS_TO_TICKS(publishInterval));
         }
     }
 
@@ -58,7 +69,7 @@ public:
         xTaskCreate(
             taskFunction,
             "SensorPublishTask",
-            4096,  // Stack size (adjust as needed)
+            8192,  // Stack size (adjust as needed)
             this,
             1,  // Priority
             &taskHandle

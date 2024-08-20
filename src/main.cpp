@@ -82,12 +82,12 @@ void setupRelayPins() {
 
 void setup() {
     Serial.begin(115200);                 
-    logger.setFilterLevel(Logger::Level::INFO);
+    logger.setFilterLevel(Logger::Level::DEBUG);
     setup_wifi();
     delay(100);
     configManager.begin("cfg");
     hwConfig = configManager.getHardwareConfig();
-    delay(2000);
+    delay(200);
     setupI2C();
     // Initialize the pointer
     webServerPtr = &webServer;  
