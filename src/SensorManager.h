@@ -2,45 +2,43 @@
 #define SENSORMANAGER_H
 
 #include <mutex>
+#include <shared_mutex>
 #include <map>
 #include <Adafruit_BMP085.h>
 #include "ConfigManager.h"
+#include "ESPLogger.h"
 #include <Wire.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 struct SensorData {
-    std::map<int, float> moisture;  // Key is the sensor pin
+    std::array<float, ConfigConstants::RELAY_COUNT> moisture;
     float temperature;
     float pressure;
     bool waterLevel;
-    std::map<int, bool> relayState;  // Key is the relay pin
 };
 
 class SensorManager {
 private:
     SensorData data;
-    std::mutex dataMutex;
-    
+    mutable std::shared_mutex dataMutex;
     Adafruit_BMP085 bmp;
     ConfigManager& configManager;
-
-    static void sensorTaskFunction(void* pvParameters);
+    Logger& logger;
     TaskHandle_t sensorTaskHandle;
-
     int floatSwitchPin;
 
-public:
-    SensorManager(ConfigManager& configManager)
-        : configManager(configManager), sensorTaskHandle(nullptr) {}
-
-    void setupFloatSwitch();
-    void setupSensors();
-    void updateSensorData();
-    SensorData getSensorData();
-    void startSensorTask();
-
-private:
+    static void sensorTaskFunction(void* pvParameters);
     float readMoistureSensor(int sensorPin);
     bool checkWaterLevel();
+    void updateSensorData();
+
+public:
+    SensorManager(ConfigManager& configManager);
+    void setupFloatSwitch();
+    void setupSensors();
+    const SensorData& getSensorData() const;
+    void startSensorTask();
 };
 
 #endif // SENSORMANAGER_H

@@ -14,7 +14,7 @@
 #include <variant>
 #include "Globals.h"
 #include "ESPLogger.h"
-
+#define TAG "ConfigManager"
 class ConfigManager {
 public:
     struct SensorConfig {
@@ -79,75 +79,48 @@ public:
 
     using ObserverCallback = std::function<void(ConfigKey)>;
     ConfigManager() : logger(Logger::instance()),
-                      preferences() {}
+                    preferences() {}
 
+    
     bool begin(const char* name = "cf") {
         bool result = preferences.begin(name, false);
         if (result) {
             if (!preferences.isKey("initialized")) {
-                logger.log(LogLevel::INFO, "First run, initializing default values");
+                logger.log("TAG", LogLevel::INFO, "First run, initializing default values");
                 initializeDefaultValues();
                 preferences.putBool("initialized", true);
             } else {
-                logger.log(LogLevel::INFO, "Config already initialized");
+                logger.log("TAG", LogLevel::INFO, "Config already initialized");
             }
         }
-        // Debug output
-        for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; ++i) {
-            int sensorPin = std::get<int>(getValue(ConfigKey::SENSOR_PIN, i));
-            int relayPin = std::get<int>(getValue(ConfigKey::RELAY_PIN, i));
-            logger.log(LogLevel::DEBUG, "Sensor " + std::to_string(i) + " pin: " + std::to_string(sensorPin) +
-                                        ", Relay " + std::to_string(i) + " pin: " + std::to_string(relayPin));
-        }
-
+        initializeConfigurations();
         return result;
     }
 
-    void end() {
-        std::unique_lock<std::shared_mutex> lock(mutex);
-        preferences.end();
-    }
-
-    void initializeDefaultValues() {
-        for (const auto& [key, info] : configMap) {
-            if (key == ConfigKey::SENSOR_PIN || key == ConfigKey::RELAY_PIN) {
-                const auto& pinArray = std::get<std::array<int, ConfigConstants::RELAY_COUNT>>(info.defaultValue);
-                for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; ++i) {
-                    std::string prefKey = getPrefKey(info.prefKey, i);
-                    if (!preferences.isKey(prefKey.c_str())) {
-                        setValueInternal(prefKey, pinArray[i]);
-                        logger.log(LogLevel::DEBUG, "Initialized " + info.prefKey + " " + std::to_string(i) + " to " + std::to_string(pinArray[i]));
-                    }
-                }
-            } else {
-                std::string prefKey = getPrefKey(info.prefKey);
-                if (!preferences.isKey(prefKey.c_str())) {
-                    setValueInternal(prefKey, info.defaultValue);
-                }
-            }
+    void initializeConfigurations() {
+        cachedHardwareConfig = getHardwareConfig();
+        cachedSoftwareConfig = getSoftwareConfig();
+        for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; ++i) {
+            cachedSensorConfigs[i] = getSensorConfig(i).value_or(SensorConfig{});
         }
     }
 
-
-    template<typename T>
-    void setValue(ConfigKey key, T value, size_t index = 0) {
-        std::unique_lock<std::shared_mutex> lock(mutex);
-        const auto& info = configMap.at(key);
-        std::string prefKey = getPrefKey(info.prefKey, index);
-        
-        if (!validateValue(key, value)) {
-            logger.log(LogLevel::ERROR, "Invalid value for key: " + prefKey);
-            return;
-        }
-        
-        if (setValueInternal(prefKey, ConfigValue(value))) {
-            notifyObservers(key);
-        } else {
-            logger.log(LogLevel::ERROR, "Failed to save value for key: " + prefKey);
-        }
+    const HardwareConfig& getCachedHardwareConfig() const {
+        std::shared_lock<std::shared_mutex> lock(mutex);
+        return cachedHardwareConfig;
     }
 
-    ConfigValue getValue(ConfigKey key, size_t index = 0) const {
+    const SoftwareConfig& getCachedSoftwareConfig() const {
+        std::shared_lock<std::shared_mutex> lock(mutex);
+        return cachedSoftwareConfig;
+    }
+
+    const SensorConfig& getCachedSensorConfig(size_t index) const {
+        std::shared_lock<std::shared_mutex> lock(mutex);
+        return cachedSensorConfigs.at(index);
+    }
+
+    [[nodiscard]] ConfigValue getValue(ConfigKey key, size_t index = 0) const {
         std::shared_lock<std::shared_mutex> lock(mutex);
         const auto& info = configMap.at(key);
         if (key == ConfigKey::SENSOR_PIN || key == ConfigKey::RELAY_PIN) {
@@ -167,50 +140,120 @@ public:
 
     void setSensorConfig(size_t index, const SensorConfig& config) {
         if (index >= ConfigConstants::RELAY_COUNT) {
-            logger.log(Logger::Level::ERROR, "Invalid sensor index: ");
+            logger.log("TAG", LogLevel::ERROR, "Invalid sensor index: %zu", index);
             return;
         }
 
         std::unique_lock<std::shared_mutex> lock(mutex);
-        setValue(ConfigKey::SENSOR_THRESHOLD, config.threshold, index);
-        setValue(ConfigKey::SENSOR_ACTIVATION_PERIOD, config.activationPeriod, index);
-        setValue(ConfigKey::SENSOR_WATERING_INTERVAL, config.wateringInterval, index);
-        setValue(ConfigKey::SENSOR_ENABLED, config.sensorEnabled, index);
-        setValue(ConfigKey::RELAY_ENABLED, config.relayEnabled, index);
-        setValue(ConfigKey::SENSOR_PIN, config.sensorPin, index);
-        setValue(ConfigKey::RELAY_PIN, config.relayPin, index);
+        SensorConfig& currentConfig = cachedSensorConfigs[index];
+        bool configChanged = false;
 
-        notifyObservers(ConfigKey::SENSOR_THRESHOLD);
+        configChanged |= updateIfChanged(currentConfig.threshold, config.threshold, ConfigKey::SENSOR_THRESHOLD, index);
+        configChanged |= updateIfChanged(currentConfig.activationPeriod, config.activationPeriod, ConfigKey::SENSOR_ACTIVATION_PERIOD, index);
+        configChanged |= updateIfChanged(currentConfig.wateringInterval, config.wateringInterval, ConfigKey::SENSOR_WATERING_INTERVAL, index);
+        configChanged |= updateIfChanged(currentConfig.sensorEnabled, config.sensorEnabled, ConfigKey::SENSOR_ENABLED, index);
+        configChanged |= updateIfChanged(currentConfig.relayEnabled, config.relayEnabled, ConfigKey::RELAY_ENABLED, index);
+        configChanged |= updateIfChanged(currentConfig.sensorPin, config.sensorPin, ConfigKey::SENSOR_PIN, index);
+        configChanged |= updateIfChanged(currentConfig.relayPin, config.relayPin, ConfigKey::RELAY_PIN, index);
+
+        if (updateIfChanged(currentConfig.sensorPin, config.sensorPin, ConfigKey::SENSOR_PIN, index)) {
+            configChanged = true;
+            cachedHardwareConfig.moistureSensorPins[index] = config.sensorPin;
+        }
+        if (updateIfChanged(currentConfig.relayPin, config.relayPin, ConfigKey::RELAY_PIN, index)) {
+            configChanged = true;
+            cachedHardwareConfig.relayPins[index] = config.relayPin;
+        }
+
+        if (configChanged) {
+            cachedSensorConfigs[index] = currentConfig;
+        }
     }
 
     void setSoftwareConfig(const SoftwareConfig& config) {
         std::unique_lock<std::shared_mutex> lock(mutex);
-        setValue(ConfigKey::TEMP_OFFSET, config.tempOffset);
-        setValue(ConfigKey::TELEMETRY_INTERVAL, config.telemetryInterval);
-        setValue(ConfigKey::SENSOR_UPDATE_INTERVAL, config.sensorUpdateInterval);
-        setValue(ConfigKey::LCD_UPDATE_INTERVAL, config.lcdUpdateInterval);
-        setValue(ConfigKey::SENSOR_PUBLISH_INTERVAL, config.sensorPublishInterval);
+        bool configChanged = false;
+
+        configChanged |= updateIfChanged(cachedSoftwareConfig.tempOffset, config.tempOffset, ConfigKey::TEMP_OFFSET);
+        configChanged |= updateIfChanged(cachedSoftwareConfig.telemetryInterval, config.telemetryInterval, ConfigKey::TELEMETRY_INTERVAL);
+        configChanged |= updateIfChanged(cachedSoftwareConfig.sensorUpdateInterval, config.sensorUpdateInterval, ConfigKey::SENSOR_UPDATE_INTERVAL);
+        configChanged |= updateIfChanged(cachedSoftwareConfig.lcdUpdateInterval, config.lcdUpdateInterval, ConfigKey::LCD_UPDATE_INTERVAL);
+        configChanged |= updateIfChanged(cachedSoftwareConfig.sensorPublishInterval, config.sensorPublishInterval, ConfigKey::SENSOR_PUBLISH_INTERVAL);
     }
 
-    std::optional<SensorConfig> getSensorConfig(size_t index) const {
-        if (index >= ConfigConstants::RELAY_COUNT) {
-            logger.log(LogLevel::ERROR, "Invalid sensor index:");
-            return std::nullopt;
+    void setHardwareConfig(const HardwareConfig& config) {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        bool configChanged = false;
+
+        configChanged |= updateIfChanged(cachedHardwareConfig.sdaPin, config.sdaPin, ConfigKey::SDA_PIN);
+        configChanged |= updateIfChanged(cachedHardwareConfig.sclPin, config.sclPin, ConfigKey::SCL_PIN);
+        configChanged |= updateIfChanged(cachedHardwareConfig.floatSwitchPin, config.floatSwitchPin, ConfigKey::FLOAT_SWITCH_PIN);
+
+        for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; ++i) {
+            if (updateIfChanged(cachedHardwareConfig.moistureSensorPins[i], config.moistureSensorPins[i], ConfigKey::SENSOR_PIN, i)) {
+                configChanged = true;
+                cachedSensorConfigs[i].sensorPin = config.moistureSensorPins[i];
+            }
+            if (updateIfChanged(cachedHardwareConfig.relayPins[i], config.relayPins[i], ConfigKey::RELAY_PIN, i)) {
+                configChanged = true;
+                cachedSensorConfigs[i].relayPin = config.relayPins[i];
+            }
         }
-
-        std::shared_lock<std::shared_mutex> lock(mutex);
-        SensorConfig config;
-        config.threshold = std::get<float>(getValue(ConfigKey::SENSOR_THRESHOLD, index));
-        config.activationPeriod = std::get<uint32_t>(getValue(ConfigKey::SENSOR_ACTIVATION_PERIOD, index));
-        config.wateringInterval = std::get<uint32_t>(getValue(ConfigKey::SENSOR_WATERING_INTERVAL, index));
-        config.sensorEnabled = std::get<bool>(getValue(ConfigKey::SENSOR_ENABLED, index));
-        config.relayEnabled = std::get<bool>(getValue(ConfigKey::RELAY_ENABLED, index));
-        config.sensorPin = std::get<int>(getValue(ConfigKey::SENSOR_PIN, index));
-        config.relayPin = std::get<int>(getValue(ConfigKey::RELAY_PIN, index));
-
-        return config;
     }
 
+    void resetToDefault() {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        preferences.clear();
+        initializeDefaultValues();
+        initializeConfigurations();
+        logger.log("TAG", LogLevel::INFO, "Configuration reset to default values");
+    }
+    
+    void end() {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        preferences.end();
+    }
+
+private:
+    Preferences preferences;
+    Logger& logger;
+    std::map<ConfigKey, std::vector<ObserverCallback>> observers;
+    mutable std::shared_mutex mutex;
+    
+    HardwareConfig cachedHardwareConfig;
+    SoftwareConfig cachedSoftwareConfig;
+    std::array<SensorConfig, ConfigConstants::RELAY_COUNT> cachedSensorConfigs;
+
+    static const std::map<ConfigKey, ConfigInfo> configMap;
+
+    std::string getPrefKey(const std::string& baseKey, size_t index = 0) const {
+        if (index > 0) {
+            return baseKey + "_" + std::to_string(index);
+        }
+        return baseKey;
+    }
+
+    void initializeDefaultValues() {
+        for (const auto& [key, info] : configMap) {
+            if (key == ConfigKey::SENSOR_PIN || key == ConfigKey::RELAY_PIN) {
+                const auto& pinArray = std::get<std::array<int, ConfigConstants::RELAY_COUNT>>(info.defaultValue);
+                for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; ++i) {
+                    std::string prefKey = getPrefKey(info.prefKey, i);
+                    if (!preferences.isKey(prefKey.c_str())) {
+                        setValueInternal(prefKey, pinArray[i]);
+                        logger.log("TAG", LogLevel::DEBUG, "Initialized %s %zu to %d", info.prefKey.c_str(), i, pinArray[i]);
+                    }
+                }
+            } else {
+                std::string prefKey = getPrefKey(info.prefKey);
+                if (!preferences.isKey(prefKey.c_str())) {
+                    setValueInternal(prefKey, info.defaultValue);
+                }
+            }
+        }
+    }
+
+    // Getters for the preferences library values are kept private, we use cached values in public instead
     SoftwareConfig getSoftwareConfig() const {
         std::shared_lock<std::shared_mutex> lock(mutex);
         SoftwareConfig config;
@@ -220,32 +263,6 @@ public:
         config.lcdUpdateInterval = std::get<uint32_t>(getValue(ConfigKey::LCD_UPDATE_INTERVAL));
         config.sensorPublishInterval = std::get<uint32_t>(getValue(ConfigKey::SENSOR_PUBLISH_INTERVAL));
         return config;
-    }
-
-    std::vector<SensorConfig> getEnabledSensorConfigs() const {
-        std::shared_lock<std::shared_mutex> lock(mutex);
-        std::vector<SensorConfig> enabledConfigs;
-        for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; ++i) {
-            auto config = getSensorConfig(i);
-            if (config && config->sensorEnabled) {
-                enabledConfigs.push_back(*config);
-            }
-        }
-        return enabledConfigs;
-    }
-
-    void setHardwareConfig(const HardwareConfig& config) {
-        std::unique_lock<std::shared_mutex> lock(mutex);
-        setValue(ConfigKey::SDA_PIN, config.sdaPin);
-        setValue(ConfigKey::SCL_PIN, config.sclPin);
-        setValue(ConfigKey::FLOAT_SWITCH_PIN, config.floatSwitchPin);
-
-        for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; i++) {
-            setValue(ConfigKey::SENSOR_PIN, config.moistureSensorPins[i], i);
-            setValue(ConfigKey::RELAY_PIN, config.relayPins[i], i);
-        }
-
-        notifyObservers(ConfigKey::SDA_PIN);
     }
 
     HardwareConfig getHardwareConfig() const {
@@ -263,43 +280,23 @@ public:
         return config;
     }
 
-    void addObserver(ConfigKey key, ObserverCallback callback) {
-        std::unique_lock<std::shared_mutex> lock(mutex);
-        observers[key].push_back(callback);
-    }
-
-    void removeObserver(ConfigKey key, const ObserverCallback& callback) {
-        std::unique_lock<std::shared_mutex> lock(mutex);
-        auto it = observers.find(key);
-        if (it != observers.end()) {
-            auto& callbacks = it->second;
-            callbacks.erase(std::remove_if(callbacks.begin(), callbacks.end(),
-                [&callback](const ObserverCallback& cb) {
-                    return &cb == &callback;
-                }), callbacks.end());
+    std::optional<SensorConfig> getSensorConfig(size_t index) const {
+        if (index >= ConfigConstants::RELAY_COUNT) {
+            logger.log("TAG", LogLevel::ERROR, "Invalid sensor index:");
+            return std::nullopt;
         }
-    }
 
-    void resetToDefault() {
-        std::unique_lock<std::shared_mutex> lock(mutex);
-        preferences.clear();
-        notifyObservers(ConfigKey::SENSOR_THRESHOLD);
-        logger.log(LogLevel::INFO, "Configuration reset to default values");
-    }
+        std::shared_lock<std::shared_mutex> lock(mutex);
+        SensorConfig config;
+        config.threshold = std::get<float>(getValue(ConfigKey::SENSOR_THRESHOLD, index));
+        config.activationPeriod = std::get<uint32_t>(getValue(ConfigKey::SENSOR_ACTIVATION_PERIOD, index));
+        config.wateringInterval = std::get<uint32_t>(getValue(ConfigKey::SENSOR_WATERING_INTERVAL, index));
+        config.sensorEnabled = std::get<bool>(getValue(ConfigKey::SENSOR_ENABLED, index));
+        config.relayEnabled = std::get<bool>(getValue(ConfigKey::RELAY_ENABLED, index));
+        config.sensorPin = std::get<int>(getValue(ConfigKey::SENSOR_PIN, index));
+        config.relayPin = std::get<int>(getValue(ConfigKey::RELAY_PIN, index));
 
-private:
-    Preferences preferences;
-    Logger& logger;
-    std::map<ConfigKey, std::vector<ObserverCallback>> observers;
-    mutable std::shared_mutex mutex;
-
-    static const std::map<ConfigKey, ConfigInfo> configMap;
-
-    std::string getPrefKey(const std::string& baseKey, size_t index = 0) const {
-        if (index > 0) {
-            return baseKey + "_" + std::to_string(index);
-        }
-        return baseKey;
+        return config;
     }
 
     bool setValueInternal(const std::string& key, const ConfigValue& value) {
@@ -314,7 +311,6 @@ private:
             } else if constexpr (std::is_same_v<T, uint32_t>) {
                 return preferences.putULong(key.c_str(), arg);
             } else if constexpr (std::is_same_v<T, std::array<int, ConfigConstants::RELAY_COUNT>>) {
-                // We don't store the entire array, as we're storing individual values
                 return false;
             }
             return false;
@@ -337,12 +333,11 @@ private:
         }
     }
 
-
     static const std::map<ConfigKey, Range<float>> floatRanges;
     static const std::map<ConfigKey, Range<uint32_t>> uint32Ranges;
-   
+
     template<typename T>
-    bool validateValue(ConfigKey key, T value) const {
+    bool validateValue(ConfigKey key, const T& value) const {
         const auto& info = configMap.at(key);
         if (info.minValue && info.maxValue) {
             return value >= std::get<T>(*info.minValue) && value <= std::get<T>(*info.maxValue);
@@ -350,21 +345,50 @@ private:
         return true;
     }
 
-    template<typename T>
-    static constexpr bool always_false = false;
+    template<ConfigKey Key>
+    struct ConfigType {
+        using type = std::conditional_t<
+            (Key == ConfigKey::SDA_PIN || Key == ConfigKey::SCL_PIN || Key == ConfigKey::FLOAT_SWITCH_PIN),
+            HardwareConfig,
+            std::conditional_t<
+                (Key == ConfigKey::TEMP_OFFSET || Key == ConfigKey::TELEMETRY_INTERVAL || 
+                Key == ConfigKey::SENSOR_UPDATE_INTERVAL || Key == ConfigKey::LCD_UPDATE_INTERVAL || 
+                Key == ConfigKey::SENSOR_PUBLISH_INTERVAL),
+                SoftwareConfig,
+                SensorConfig
+            >
+        >;
+    };
 
-    void notifyObservers(ConfigKey key) {
-        auto it = observers.find(key);
-        if (it != observers.end()) {
-            for (const auto& callback : it->second) {
-                callback(key);
-            }
+    template<typename T>
+    bool updateIfChanged(T& currentValue, const T& newValue, ConfigKey key, size_t index = 0) {
+        if (currentValue == newValue) return false;
+        if (validateValue(key, newValue)) {
+            currentValue = newValue;
+            std::string prefKey = getPrefKey(configMap.at(key).prefKey, index);
+            setValueInternal(prefKey, ConfigValue(newValue));
+            return true;
+        } else {
+            logger.log("TAG", LogLevel::ERROR, "Invalid value for key: %zu", key);
+            return false;
+        }
+        return false;
+    }
+
+    // Helper function to get the appropriate config object
+    template<ConfigKey Key>
+    typename ConfigType<Key>::type& getConfigObject(size_t index = 0) {
+        if constexpr (std::is_same_v<typename ConfigType<Key>::type, HardwareConfig>) {
+            return cachedHardwareConfig;
+        } else if constexpr (std::is_same_v<typename ConfigType<Key>::type, SoftwareConfig>) {
+            return cachedSoftwareConfig;
+        } else {
+            return cachedSensorConfigs[index];
         }
     }
 };
 
-// Define the static member outside the class, key mapping is needed because pref. library has 15 char limit for keys.
-// Define the unified configuration map
+// key mapping is needed because pref. library has 15 char limit for keys, inline to make it unique for compilation units
 inline const std::map<ConfigManager::ConfigKey, ConfigManager::ConfigInfo> ConfigManager::configMap = {
     {ConfigKey::SENSOR_THRESHOLD, {"th", ConfigConstants::DEFAULT_THRESHOLD, ConfigConstants::MIN_THRESHOLD, ConfigConstants::MAX_THRESHOLD}},
     {ConfigKey::SENSOR_ACTIVATION_PERIOD, {"ap", ConfigConstants::DEFAULT_ACTIVATION_PERIOD, ConfigConstants::MIN_ACTIVATION_PERIOD, ConfigConstants::MAX_ACTIVATION_PERIOD}},

@@ -9,7 +9,7 @@
 #include "SensorManager.h"
 #include "ConfigManager.h"
 #include "MQTTManager.h"
-
+#define TAG "PublishManager"
 class SensorPublishTask {
 private:
     SensorManager& sensorManager;
@@ -24,9 +24,9 @@ private:
     }
 
     void delayedStart() {
-        Logger::instance().log(Logger::Level::INFO, "Waiting before starting sensor publish task...");
+        Logger::instance().log("TAG", Logger::Level::INFO, "Waiting before starting sensor publish task...");
         vTaskDelay(pdMS_TO_TICKS(STARTUP_DELAY_MS));
-        Logger::instance().log(Logger::Level::INFO, "Starting sensor publish task");
+        Logger::instance().log("TAG", Logger::Level::INFO, "Starting sensor publish task");
         publishSensorData();
     }
 
@@ -36,10 +36,10 @@ private:
                 SensorData data = sensorManager.getSensorData();
                 JsonDocument doc;
                 
-                auto configs = configManager.getEnabledSensorConfigs();
-                for (const auto& config : configs) {
+                for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; ++i) {
+                    const auto& config = configManager.getCachedSensorConfig(i);
                     if (config.sensorEnabled) {
-                        doc["moisture_" + String(config.sensorPin)] = data.moisture[config.sensorPin];
+                        doc["moisture_" + String(config.sensorPin)] = data.moisture[i];
                     }
                 }
                 doc["temperature"] = data.temperature;
@@ -51,11 +51,11 @@ private:
                 
                 mqttManager.publish("esp32/sensor_data", payload.c_str());
 
-                ConfigManager::ConfigValue interval = configManager.getValue(ConfigManager::ConfigKey::SENSOR_PUBLISH_INTERVAL);
-                uint32_t publishInterval = std::get<uint32_t>(interval);
+                const auto& softwareConfig = configManager.getCachedSoftwareConfig();
+                uint32_t publishInterval = softwareConfig.sensorPublishInterval;
                 vTaskDelay(pdMS_TO_TICKS(publishInterval));
             } else {
-                Logger::instance().log(Logger::Level::WARNING, "MQTT not connected. Waiting before retry.");
+                Logger::instance().log("TAG", Logger::Level::WARNING, "MQTT not connected. Waiting before retry.");
                 vTaskDelay(pdMS_TO_TICKS(5000)); // Wait 5 seconds before checking connection again
             }
         }

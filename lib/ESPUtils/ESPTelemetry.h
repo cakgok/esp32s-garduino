@@ -4,6 +4,7 @@
 #include <ArduinoJson.h>
 #include "ESPLogger.h"
 #include "MQTTManager.h"  
+#define TAG "Telemetry"
 
 class ESPTelemetry {
 public:
@@ -14,7 +15,7 @@ public:
           topic(topic) {}
 
     void publishTelemetry() {
-        logger.log(Logger::Level::INFO, "Preparing telemetry...");
+        logger.log("TAG", Logger::Level::INFO, "Preparing telemetry...");
         
         JsonDocument doc;
         
@@ -36,7 +37,7 @@ public:
 
     void setTopic(const char* newTopic) {
         topic = newTopic;
-        logger.log(Logger::Level::INFO, "Telemetry topic set to: {}", newTopic);
+        logger.log("TAG", Logger::Level::INFO, "Telemetry topic set to: {}", newTopic);
     }
 
 private:

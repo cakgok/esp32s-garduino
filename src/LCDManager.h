@@ -5,19 +5,34 @@
 #include "SensorManager.h"
 #include "ConfigManager.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/timers.h"
+#include "freertos/task.h"
+#include "ESPLogger.h"
+#define TAG "LCDManager"
 
 class LCDManager {
 private:
     LiquidCrystal_I2C& lcd;
     SensorManager& sensorManager;
     ConfigManager& configManager;
-    TimerHandle_t timer;
+    TaskHandle_t taskHandle;
     int currentDisplay;
+    static constexpr uint32_t STARTUP_DELAY_MS = 5000; // 5 second delay
 
-    static void timerCallback(TimerHandle_t xTimer) {
-        LCDManager* self = static_cast<LCDManager*>(pvTimerGetTimerID(xTimer));
-        self->updateDisplay();
+    static void taskFunction(void* pvParameters) {
+        LCDManager* self = static_cast<LCDManager*>(pvParameters);
+        self->runTask();
+    }
+
+    void runTask() {
+        Logger::instance().log("TAG", Logger::Level::INFO, "Waiting before starting LCD update task...");
+        vTaskDelay(pdMS_TO_TICKS(STARTUP_DELAY_MS));
+        Logger::instance().log("TAG", Logger::Level::INFO, "Starting LCD update task");
+        
+        while (true) {
+            updateDisplay();
+            const auto& softwareConfig = configManager.getCachedSoftwareConfig();
+            vTaskDelay(pdMS_TO_TICKS(softwareConfig.lcdUpdateInterval));
+        }
     }
 
     void updateDisplay() {
@@ -32,50 +47,61 @@ private:
                 lcd.print("Press: " + String(data.pressure, 1) + "hPa");
                 break;
             case 1:
-                lcd.setCursor(0, 0);
-                lcd.print("Moist1: " + String(data.moisture[0], 1) + "%");
-                lcd.setCursor(0, 1);
-                lcd.print("Moist2: " + String(data.moisture[1], 1) + "%");
+                displayMoistureData(0, 1);
                 break;
             case 2:
-                lcd.setCursor(0, 0);
-                lcd.print("Moist3: " + String(data.moisture[2], 1) + "%");
-                lcd.setCursor(0, 1);
-                lcd.print("Moist4: " + String(data.moisture[3], 1) + "%");
+                displayMoistureData(2, 3);
                 break;
         }
 
         currentDisplay = (currentDisplay + 1) % 3;
-
-        // Update the timer interval for the next update
-        auto newInterval = configManager.getSoftwareConfig().lcdUpdateInterval;
-        xTimerChangePeriod(timer, pdMS_TO_TICKS(newInterval), 0);
     }
 
+    void displayMoistureData(int sensor1, int sensor2) {
+        lcd.setCursor(0, 0);
+        lcd.print("Moist" + String(sensor1 + 1) + ": " + getMoistureDisplay(sensor1));
+        lcd.setCursor(0, 1);
+        lcd.print("Moist" + String(sensor2 + 1) + ": " + getMoistureDisplay(sensor2));
+    }
+
+    String getMoistureDisplay(int sensorIndex) {
+        const auto& sensorConfig = configManager.getCachedSensorConfig(sensorIndex);
+        if (sensorConfig.sensorEnabled) {
+            const auto& moistureData = sensorManager.getSensorData().moisture;
+            if (sensorConfig.sensorPin < moistureData.size()) {
+                return String(moistureData[sensorConfig.sensorPin], 1) + "%";
+            } else {
+                return "N/A";
+            }
+        } else {
+            return "Disabled";
+        }
+    }
 public:
     LCDManager(LiquidCrystal_I2C& lcd, SensorManager& sm, ConfigManager& cm)
-        : lcd(lcd), sensorManager(sm), configManager(cm), currentDisplay(0) {
-        
-        timer = xTimerCreate(
-            "LCDUpdateTimer",
-            pdMS_TO_TICKS(configManager.getSoftwareConfig().lcdUpdateInterval),
-            pdFALSE,  // Auto-reload set to false
+        : lcd(lcd), sensorManager(sm), configManager(cm), taskHandle(NULL), currentDisplay(0) {}
+
+    void start() {
+        xTaskCreate(
+            taskFunction,
+            "LCDUpdateTask",
+            4096,  // Stack size (adjust as needed)
             this,
-            timerCallback
+            1,  // Priority
+            &taskHandle
         );
     }
 
-    void start() {
-        xTimerStart(timer, 0);
-    }
-
     void stop() {
-        xTimerStop(timer, 0);
+        if (taskHandle != NULL) {
+            vTaskDelete(taskHandle);
+            taskHandle = NULL;
+        }
     }
 
     ~LCDManager() {
-        xTimerDelete(timer, 0);
+        stop();
     }
 };
 
-#endif
+#endif // LCD_MANAGER_H

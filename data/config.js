@@ -139,7 +139,6 @@ function populateForm(config) {
     populateGlobalSettings(config);
     createAndPopulateSensorConfigs(config);
     addChangeListeners();
-
     hasChanges = false;
     updateSaveButton();
 }

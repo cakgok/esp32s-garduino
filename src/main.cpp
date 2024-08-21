@@ -17,7 +17,7 @@
 #include "RelayManager.h"
 #include "globals.h"
 #define ENABLE_SERIAL_PRINT // Enable serial printing
-
+#define TAG "Main"
 const ESPMQTTManager::Config mqttConfig = {
     .server = MQTT_SERVER,
     .port = MQTT_PORT,
@@ -40,39 +40,38 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 //Preferences preferences;
 WiFiClientSecure espClient;
 PubSubClient mqttClient(espClient);
-ConfigManager configManager;
-SensorManager sensorManager(configManager);
-RelayManager relayManager(configManager, sensorManager);
-LCDManager lcdManager(lcd, sensorManager, configManager);
-SensorPublishTask publishTask(sensorManager, mqttManager, configManager);
-ESP32WebServer webServer(80, relayManager, sensorManager, configManager);
-ESP32WebServer* webServerPtr = nullptr;  // Declare the pointer at global scope
-
-// Initialize config
-ConfigManager::HardwareConfig hwConfig;
-ConfigManager::SensorConfig sensorConfigs[ConfigConstants::RELAY_COUNT];
+ConfigManager* configManager = nullptr;
+SensorManager* sensorManager = nullptr;
+RelayManager* relayManager = nullptr;
+LCDManager* lcdManager = nullptr;
+SensorPublishTask* publishTask = nullptr;
+ESP32WebServer* webServer = nullptr;
+//ESP32WebServer* webServerPtr = nullptr;  // Declare the pointer at global scope
 
 void setup_wifi() {
-  logger.log("Connecting to WiFi...");
+  logger.log("TAG", LogLevel::INFO, "Connecting to WiFi...");
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   while (WiFi.status() != WL_CONNECTED) {
-    delay(50);
-    logger.log(".");
+    delay(250);
+    logger.log("TAG", LogLevel::INFO, "Waiting for connection...");
   }
 }
 void setupLittleFS() {
     if (!LittleFS.begin(false, "/littlefs", 10, "littlefs")) {
-        logger.log("LittleFS Mount Failed");
+        logger.log("TAG", LogLevel::ERROR, "LittleFS Mount Failed");
         return;
     }
-    logger.log("LittleFS mounted successfully");
+    logger.log("TAG",LogLevel::INFO, "LittleFS mounted successfully");
 }
 void setupI2C() {
+    const auto& hwConfig = configManager->getCachedHardwareConfig();
+    Wire.begin(hwConfig.sdaPin, hwConfig.sclPin);
     Wire.begin(hwConfig.sdaPin, hwConfig.sclPin);
     lcd.init();
     lcd.backlight();
 }
 void setupRelayPins() {
+    const auto& hwConfig = configManager->getCachedHardwareConfig();
     for (int i = 0; i < ConfigConstants::RELAY_COUNT; i++) {
         pinMode(hwConfig.relayPins[i], INPUT);
         digitalWrite(hwConfig.relayPins[i], HIGH);
@@ -85,16 +84,22 @@ void setup() {
     logger.setFilterLevel(Logger::Level::DEBUG);
     setup_wifi();
     delay(100);
-    configManager.begin("cfg");
-    hwConfig = configManager.getHardwareConfig();
+    configManager = new ConfigManager();
+    configManager->begin("cfg");
+    configManager->initializeConfigurations();
     delay(200);
+    // Initialize other managers
+    sensorManager = new SensorManager(*configManager);
+    relayManager = new RelayManager(*configManager, *sensorManager);
+    lcdManager = new LCDManager(lcd, *sensorManager, *configManager);
+    webServer = new ESP32WebServer(80, *relayManager, *sensorManager, *configManager);
     setupI2C();
     // Initialize the pointer
-    webServerPtr = &webServer;  
+    //webServerPtr = &webServer;  
     // Set up the logger observer
     logger.addLogObserver([](std::string_view tag, Logger::Level level, std::string_view message) {
-        if (webServerPtr) {  // Check if the pointer is valid
-            webServerPtr->handleLogMessage(tag, level, message);
+        if (webServer) {  // Check if the pointer is valid
+            webServer->handleLogMessage(tag, level, message);
         } 
     });   
     setupOTA();
@@ -104,14 +109,14 @@ void setup() {
     delay(1000);
     setupLittleFS();
     setupRelayPins();
-    sensorManager.setupFloatSwitch();
-    sensorManager.setupSensors();
-    sensorManager.startSensorTask();
-    webServer.begin();
+    sensorManager->setupFloatSwitch();
+    sensorManager->setupSensors();
+    sensorManager->startSensorTask();
+    webServer->begin();
     //lcdManager.start();
     delay(1000);
-    publishTask.start();
-    logger.log("Setup complete");   
+    publishTask = new SensorPublishTask(*sensorManager, mqttManager, *configManager);
+    logger.log("TAG", LogLevel::INFO, "Setup complete");   
 }
 
 void loop() {

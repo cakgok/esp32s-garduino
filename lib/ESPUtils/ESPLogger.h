@@ -1,3 +1,21 @@
+// ///////////////////////////
+// Logger& logger = Logger::instance();
+
+// // Basic logging
+// logger.log("This is a default INFO log");
+// logger.log(LogLevel::DEBUG, "This is a DEBUG log");
+// logger.log("MYTAG", LogLevel::WARNING, "This is a WARNING log with a custom tag");
+
+// // Logging with format strings
+// int temperature = 25;
+// float humidity = 60.5f;
+// logger.log(LogLevel::INFO, "Temperature: %d°C, Humidity: %.1f%%", temperature, humidity);
+
+// // Logging with string concatenation (using format string)
+// std::string sensorName = "DHT22";
+// logger.log(LogLevel::ERROR, "Sensor %s failed to initialize", sensorName.c_str());
+// //////////////////////////////
+
 #ifndef ESP_LOGGER_H
 #define ESP_LOGGER_H
 
@@ -10,7 +28,6 @@
 #include <atomic>
 #include <cstdarg>
 #include <vector>
-#include <sstream>
 #include <type_traits>
 
 #ifdef ENABLE_SERIAL_PRINT
@@ -46,41 +63,20 @@ public:
         filterLevel.store(level, std::memory_order_relaxed);
     }
 
-    // Helper type trait to detect if first argument is a format string
-    template<typename T, typename... Args>
-    struct is_format_string : std::false_type {};
-
     template<typename... Args>
-    struct is_format_string<const char*, Args...> : std::true_type {};
-
-
-    // this approach assumes that if the first argument (after tag and level) is a const char*, it's a format string
-    // If you need to concatenate a const char* without treating it as a format string, 
-    // wrap it in a std::string or std::string_view.
-    template<typename... Args>
-    void log(std::string_view tag, Level level, Args&&... args) {
+    void log(std::string_view tag, Level level, const char* format, Args&&... args) {
         if (level >= filterLevel.load(std::memory_order_relaxed)) {
-            if constexpr (is_format_string<std::decay_t<Args>...>::value) {
-                char message[LOG_SIZE];
-                snprintf(message, sizeof(message), std::forward<Args>(args)...);
-                addLog(tag, level, message);
-            } else {
-                std::ostringstream oss;
-                (oss << ... << std::forward<Args>(args));
-                addLog(tag, level, oss.str());
-            }
+            char message[LOG_SIZE];
+            snprintf(message, sizeof(message), format, std::forward<Args>(args)...);
+            addLog(tag, level, message);
         }
     }
 
-    // Overloads for different argument combinations
-    template<typename... Args>
-    void log(Level level, Args&&... args) {
-        log(DEFAULT_TAG, level, std::forward<Args>(args)...);
-    }
-
-    template<typename... Args>
-    void log(Args&&... args) {
-        log(DEFAULT_TAG, Level::INFO, std::forward<Args>(args)...);
+    // Overload for when there's no format string
+    void log(std::string_view tag, Level level, const char* message) {
+        if (level >= filterLevel.load(std::memory_order_relaxed)) {
+            addLog(tag, level, message);
+        }
     }
 
     [[nodiscard]] std::array<std::string_view, MAX_LOGS> getLogs() const {
@@ -97,15 +93,15 @@ public:
     }
 
     struct LogEntry {
-        std::string tag;
+        const char* tag;
         Level level;
-        std::string message;
+        const char* message;
     };
 
-    static bool startsWith(const std::string& str, const std::string& prefix) {
-        return str.size() >= prefix.size() && 
-               str.compare(0, prefix.size(), prefix) == 0;
+    static bool startsWith(const char* str, const char* prefix) {
+        return strncmp(str, prefix, strlen(prefix)) == 0;
     }
+
     std::vector<LogEntry> getChronologicalLogs() const {
         std::lock_guard<std::mutex> lock(logMutex);
         std::vector<LogEntry> result;
@@ -121,21 +117,21 @@ public:
         size_t startIndex = (currentHead - currentCount + MAX_LOGS) % MAX_LOGS;
         for (size_t i = 0; i < currentCount; i++) {
             size_t index = (startIndex + i) % MAX_LOGS;
-            std::string_view logEntry(&buffer[index * LOG_SIZE], strnlen(&buffer[index * LOG_SIZE], LOG_SIZE));
+            const char* logEntry = &buffer[index * LOG_SIZE];
             
             // Parse the log entry
-            size_t tagEnd = logEntry.find(']');
-            if (tagEnd != std::string_view::npos) {
-                std::string tag(logEntry.substr(1, tagEnd - 1));
-                std::string message(logEntry.substr(tagEnd + 2));
+            const char* tagStart = logEntry + 1;  // Skip '['
+            const char* tagEnd = strchr(tagStart, ']');
+            if (tagEnd) {
+                const char* messageStart = tagEnd + 2;  // Skip "] "
                 
                 // Determine log level
                 Level level = Level::INFO;
-                if (startsWith(message, "ERROR:")) level = Level::ERROR;
-                else if (startsWith(message, "WARNING:")) level = Level::WARNING;
-                else if (startsWith(message, "DEBUG:")) level = Level::DEBUG;
+                if (startsWith(messageStart, "ERROR:")) level = Level::ERROR;
+                else if (startsWith(messageStart, "WARNING:")) level = Level::WARNING;
+                else if (startsWith(messageStart, "DEBUG:")) level = Level::DEBUG;
                 
-                result.push_back({std::move(tag), level, std::move(message)});
+                result.push_back({tagStart, level, messageStart});
             }
         }
         return result;
@@ -150,55 +146,32 @@ private:
     mutable std::mutex logMutex;
     std::atomic<Level> filterLevel{Level::DEBUG};
 
-    Logger() {
-        esp_log_set_vprintf([](const char* fmt, va_list args) {
-            char temp[LOG_SIZE];
-            int len = vsnprintf(temp, sizeof(temp), fmt, args);
-            if (len < 0) {
-                Logger::instance().addLog(DEFAULT_TAG, Level::ERROR, "vsnprintf error in esp_log_set_vprintf");
-                return 0;
-            }
-            if (static_cast<size_t>(len) >= LOG_SIZE) {
-                len = LOG_SIZE - 1;
-            }
-            std::string_view tag = DEFAULT_TAG;
-            Level level = Level::INFO;
-            // Extract tag and level from the formatted string if possible
-            if (len > 1) {
-                switch (temp[0]) {
-                    case 'E': level = Level::ERROR; break;
-                    case 'W': level = Level::WARNING; break;
-                    case 'I': level = Level::INFO; break;
-                    case 'D': level = Level::DEBUG; break;
-                    default: break;
-                }
-                if (level != Level::INFO) {
-                    tag = std::string_view(&temp[2]);
-                    Logger::instance().addLog(tag, level, std::string_view(&temp[2], len - 2));
-                } else {
-                    Logger::instance().addLog(tag, level, std::string_view(temp, len));
-                }
-            }
-            return len;
-        });
-    }
+    Logger() {}
 
-    void addLog(std::string_view tag, Level level, std::string_view message) {
+        void addLog(std::string_view tag, Level level, const char* message) {
         if (level >= filterLevel.load(std::memory_order_relaxed)) {
             std::lock_guard<std::mutex> lock(logMutex);
             
             size_t currentHead = head.load(std::memory_order_relaxed);
             char* entry = &buffer[currentHead * LOG_SIZE];
             
-            std::string formatted = '[' + std::string(tag) + "] " + std::string(message);
-            
-            if (formatted.size() >= LOG_SIZE) {
-                formatted.resize(LOG_SIZE - 1);
-                formatted += OVERFLOW_MSG;
+            const char* levelStr;
+            switch (level) {
+                case Level::DEBUG: levelStr = "DEBUG"; break;
+                case Level::INFO: levelStr = "INFO"; break;
+                case Level::WARNING: levelStr = "WARNING"; break;
+                case Level::ERROR: levelStr = "ERROR"; break;
+                default: levelStr = "UNKNOWN"; break;
             }
             
-            strncpy(entry, formatted.c_str(), LOG_SIZE);
-            entry[LOG_SIZE - 1] = '\0';
+            int written = snprintf(entry, LOG_SIZE, "[%.*s] %s: %s", 
+                                   static_cast<int>(tag.size()), tag.data(), levelStr, message);
+            
+            if (written >= LOG_SIZE) {
+                strncpy(entry + LOG_SIZE - OVERFLOW_MSG.size() - 1, 
+                        OVERFLOW_MSG.data(), OVERFLOW_MSG.size());
+                entry[LOG_SIZE - 1] = '\0';
+            }
 
             head.store((currentHead + 1) % MAX_LOGS, std::memory_order_relaxed);
             if (count.load(std::memory_order_relaxed) < MAX_LOGS) {
@@ -206,22 +179,23 @@ private:
             }
 
             if (callback) {
-                callback(tag, level, std::string_view(entry, strnlen(entry, LOG_SIZE)));
+                callback(tag, level, entry);
             }
 
             for (const auto& observer : observers) {
-                observer(tag, level, std::string_view(entry, strnlen(entry, LOG_SIZE)));
+                observer(tag, level, entry);
             }
 
             #ifdef ENABLE_SERIAL_PRINT
-            Serial.println(formatted.c_str());
+            Serial.println(entry);
             #endif
         }
     }
-
+    
     Logger(const Logger&) = delete;
     Logger& operator=(const Logger&) = delete;
 };
+
 using LogLevel = Logger::Level;
 
 #endif // ESP_LOGGER_H
