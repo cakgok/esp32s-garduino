@@ -17,10 +17,6 @@ h1 {
     padding: 10px;
 }
 
-.log-entry {
-    margin-bottom: 5px;
-}
-
 .tag {
     font-weight: bold;
     margin-right: 5px;
@@ -35,8 +31,10 @@ h1 {
     white-space: pre-wrap;
 }
 
-.debug { color: #6c757d; }
-.info { color: #17a2b8; }
-.warning { color: #ffc107; }
-.error { color: #dc3545; }
-.critical { color: #721c24; background-color: #f8d7da; }
+.log-entry {
+    margin-bottom: 5px;
+}
+.log-level-0 { color: gray; } /* DEBUG */
+.log-level-1 { color: black; } /* INFO */
+.log-level-2 { color: orange; } /* WARNING */
+.log-level-3 { color: red; } /* ERROR */

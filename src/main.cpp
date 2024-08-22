@@ -35,10 +35,8 @@ ESPMQTTManager mqttManager(mqttConfig);
 ESPTelemetry espTelemetry(mqttManager, "esp32/telemetry");
 ESPTimeSetup timeSetup("pool.ntp.org", 0, 3600);
 
-// Initialize devices
 Adafruit_BMP085 bmp;
 LiquidCrystal_I2C lcd(0x27, 16, 2);
-//Preferences preferences;
 WiFiClientSecure espClient;
 PubSubClient mqttClient(espClient);
 ConfigManager* configManager = nullptr;
@@ -47,7 +45,6 @@ RelayManager* relayManager = nullptr;
 LCDManager* lcdManager = nullptr;
 SensorPublishTask* publishTask = nullptr;
 ESP32WebServer* webServer = nullptr;
-//ESP32WebServer* webServerPtr = nullptr;  // Declare the pointer at global scope
 
 void setup_wifi() {
   logger.log("Main", LogLevel::INFO, "Connecting to WiFi...");
@@ -79,14 +76,6 @@ void setup() {
     relayManager = new RelayManager(*configManager, *sensorManager);
     lcdManager = new LCDManager(lcd, *sensorManager, *configManager);
     webServer = new ESP32WebServer(80, *relayManager, *sensorManager, *configManager);
-    // Initialize the pointer
-    //webServerPtr = &webServer;  
-    // Set up the logger observer
-    logger.addLogObserver([](std::string_view tag, Logger::Level level, std::string_view message) {
-        if (webServer) {  // Check if the pointer is valid
-            webServer->handleLogMessage(tag, level, message);
-        } 
-    });   
     setupOTA();
     timeSetup.setup();
     delay(500);

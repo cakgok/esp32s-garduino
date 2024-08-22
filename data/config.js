@@ -115,7 +115,16 @@ function createAndPopulateSensorConfigs(config) {
     const sensorConfigsContainer = document.getElementById('sensorConfigs');
     sensorConfigsContainer.innerHTML = '';
 
+    if (!config.sensorConfigs || !Array.isArray(config.sensorConfigs)) {
+        console.error('sensorConfigs is missing or not an array:', config.sensorConfigs);
+        return;
+    }
+
     config.sensorConfigs.forEach((sensorConfig, index) => {
+        if (!sensorConfig) {
+            console.error(`Sensor config at index ${index} is null or undefined`);
+            return;
+        }
         const sensorDiv = createSensorConfigHTML(sensorConfig, index);
         sensorConfigsContainer.appendChild(sensorDiv);
     });

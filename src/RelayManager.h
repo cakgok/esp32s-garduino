@@ -9,13 +9,22 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "ESPLogger.h"
+#include <functional>
 
+
+class ESP32WebServer; // Forward declaration
 class RelayManager {
 public:
     RelayManager(const ConfigManager& configManager, SensorManager& sensorManager)
         : logger(Logger::instance()), configManager(configManager), sensorManager(sensorManager), 
           activeRelayIndex(-1), deactivationTask(nullptr), deactivationInProgress(false) {}
+
+    using NotifyClientsCallback = std::function<void()>;
     
+    void setNotifyClientsCallback(NotifyClientsCallback callback) {
+        notifyClientsCallback = std::move(callback);
+    }
+
     void init() {
         const auto& hwConfig = configManager.getCachedHardwareConfig();
         for (size_t i = 0; i < hwConfig.relayPins.size(); ++i) {
@@ -109,6 +118,7 @@ private:
     std::array<bool, ConfigConstants::RELAY_COUNT> relayStates = {false};
     std::atomic<bool> deactivationInProgress;
     std::atomic<bool> stopDeactivationTask;
+    NotifyClientsCallback notifyClientsCallback;
 
     bool deactivateRelayInternal(int relayIndex) {
 
@@ -144,6 +154,9 @@ private:
     void setRelayHardwareState(int relayPin, bool state) {
         digitalWrite(relayPin, state ? LOW : HIGH);
         logger.log("RelayManager", LogLevel::DEBUG, "Relay on pin %d hardware state set to %s", relayPin, state ? "ON" : "OFF");
+        if (notifyClientsCallback) {
+            notifyClientsCallback();
+        }    
     }
 
     struct DeactivationParams {

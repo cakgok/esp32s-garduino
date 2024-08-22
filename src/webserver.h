@@ -20,7 +20,6 @@
 class ESP32WebServer {
 private:
     AsyncWebServer server;
-    AsyncWebSocket ws;
     int serverPort;
     Logger& logger;
     RelayManager& relayManager;
@@ -31,18 +30,13 @@ private:
     JsonHandler jsonHandler;
 
     void setupRoutes() {
-        // Serve static files
-        server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
-        server.serveStatic("/index.css", LittleFS, "/index.css");
-        server.serveStatic("/index.js", LittleFS, "/index.js");
-
-        server.serveStatic("/config.html", LittleFS, "/config.html");
-        server.serveStatic("/config.css", LittleFS, "/config.css");
-        server.serveStatic("/config.js", LittleFS, "/config.js");
-
-        server.serveStatic("/logs.html", LittleFS, "/logs.html");
-        server.serveStatic("/logs.css", LittleFS, "/logs.css");
-        server.serveStatic("/logs.js", LittleFS, "/logs.js");
+        server.on("/favicon.ico", HTTP_GET, [this](AsyncWebServerRequest *request){
+            if (LittleFS.exists("/favicon.ico")) {
+                request->send(LittleFS, "/favicon.ico", "image/x-icon");
+            } else {
+                request->send(204);
+            }
+        });
 
         // API endpoints
         server.on("/api/logs", HTTP_GET, std::bind(&ESP32WebServer::handleGetLogs, this, std::placeholders::_1));
@@ -58,23 +52,45 @@ private:
         // Async JSON
         AsyncCallbackJsonWebHandler* handler = new AsyncCallbackJsonWebHandler("/api/relay", std::bind(&ESP32WebServer::handlePostRelay, this, std::placeholders::_1, std::placeholders::_2));
         server.addHandler(handler);
+
+        // Catch-all handler for /api/ routes
+        server.on("/api/", HTTP_ANY, [](AsyncWebServerRequest *request){
+            request->send(404, "text/plain", "API endpoint not found");
+        });
+
+        // Serve static files last
+        server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
+        server.serveStatic("/index.css", LittleFS, "/index.css");
+        server.serveStatic("/index.js", LittleFS, "/index.js");
+
+        server.serveStatic("/config.html", LittleFS, "/config.html");
+        server.serveStatic("/config.css", LittleFS, "/config.css");
+        server.serveStatic("/config.js", LittleFS, "/config.js");
+
+        server.serveStatic("/logs.html", LittleFS, "/logs.html");
+        server.serveStatic("/logs.css", LittleFS, "/logs.css");
+        server.serveStatic("/logs.js", LittleFS, "/logs.js");
     }
 
     void handleGetLogs(AsyncWebServerRequest *request) {
-        AsyncResponseStream *response = request->beginResponseStream("application/json");
-        JsonDocument doc;
-        JsonArray logsArray = doc["logs"].to<JsonArray>();
+        static size_t currentOffset = 0;
+        size_t totalLogs = Logger::instance().getLogCount();
 
-        auto logs = logger.getChronologicalLogs();
-        for (const auto& log : logs) {
-            JsonObject logObj = logsArray.add<JsonObject>();
-            logObj["WebServer"] = log.tag;
-            logObj["level"] = static_cast<int>(log.level);
-            logObj["message"] = log.message;
+        if (currentOffset < totalLogs) {
+            String logJson = Logger::instance().peekNextLogJson(currentOffset);
+            if (logJson.length() > 0) {
+                request->send(200, "application/json", logJson);
+                currentOffset++;
+            } else {
+                // This case shouldn't happen if peekNextLogJson is implemented correctly,
+                // but we'll handle it just in case
+                request->send(204); // No Content
+                currentOffset = totalLogs; // Force exit condition
+            }
+        } else {
+            request->send(204); // No Content
+            currentOffset = 0; // Reset offset when we've gone through all logs
         }
-
-        serializeJson(doc, *response);
-        request->send(response);
     }
 
     void handleGetConfig(AsyncWebServerRequest *request) {
@@ -149,19 +165,20 @@ private:
       
 public:
     ESP32WebServer(int port, RelayManager& relayManager, SensorManager& sensorManager, ConfigManager& configManager)
-        : server(port), 
-        logger(Logger::instance()),
-        relayManager(relayManager), 
-        serverPort(port), 
-        sensorManager(sensorManager), 
-        configManager(configManager),
-        ws("/ws"), // Initialize the WebSocket with a path
-        wsManager(server) {
-        setupRoutes();
-        logger.addLogObserver([this](std::string_view tag, Logger::Level level, std::string_view message) {
-            this->handleLogMessage(tag, level, message);
-        });
-    }
+        :   server(port), 
+            logger(Logger::instance()),
+            relayManager(relayManager), 
+            serverPort(port), 
+            sensorManager(sensorManager), 
+            configManager(configManager),
+            wsManager(server) 
+        {
+            setupRoutes();
+            logger.addLogObserver([this](std::string_view tag, Logger::Level level, std::string_view message) {
+                this->handleLogMessage(tag, level, message);
+            });
+            relayManager.setNotifyClientsCallback([this]() { this->notifyClients(); });
+        }
 
     void begin() {
         server.begin();
@@ -173,14 +190,17 @@ public:
     }
 
     void sendUpdate() {
+        logger.log("WebServer", Logger::Level::DEBUG, "sendUpdate() called");
         JsonDocument doc = jsonHandler.createSensorDataJson(sensorManager, relayManager, configManager);
         String output;
         serializeJson(doc, output);
+        logger.log("WebServer", Logger::Level::DEBUG, "Sending SSE update: %s", output.c_str());
         events->send(output.c_str(), "update", millis());
     }
 
     // Call this method whenever sensor data or relay states change
     void notifyClients() {
+        logger.log("WebServer", Logger::Level::DEBUG, "notifyClients() called");
         sendUpdate();
     }
 };

@@ -38,7 +38,7 @@ public:
             JsonDocument doc;
             doc["type"] = "log";
             doc["tag"] = tag;
-            doc["level"] = getLevelString(level);
+            doc["level"] = static_cast<int>(level);  // Changed: Use integer representation
             doc["message"] = message;
 
             String json;
@@ -50,6 +50,7 @@ public:
 private:
     std::unique_ptr<AsyncWebSocket> ws;
     esp_timer_handle_t pingTimer;
+    std::vector<uint32_t> activeClients;
 
     static void pingTimerCallback(void* arg) {
         WebSocketManager* self = static_cast<WebSocketManager*>(arg);
@@ -61,9 +62,11 @@ private:
         switch (type) {
             case WS_EVT_CONNECT:
                 Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+                activeClients.push_back(client->id());
                 break;
             case WS_EVT_DISCONNECT:
                 Serial.printf("WebSocket client #%u disconnected\n", client->id());
+                activeClients.erase(std::remove(activeClients.begin(), activeClients.end(), client->id()), activeClients.end());
                 break;
             case WS_EVT_DATA:
                 handleWebSocketMessage(arg, data, len);
@@ -106,8 +109,17 @@ private:
         doc["type"] = "ping";
         String pingMessage;
         serializeJson(doc, pingMessage);
-        ws->textAll(pingMessage);
-        Serial.println("Sent ping to all clients");
+        
+        for (auto it = activeClients.begin(); it != activeClients.end();) {
+            AsyncWebSocketClient* client = ws->client(*it);
+            if (client && client->status() == WS_CONNECTED) {
+                client->text(pingMessage);
+                ++it;
+            } else {
+                it = activeClients.erase(it);
+            }
+        }
+        Serial.printf("Sent ping to %u active clients\n", activeClients.size());
     }
 
     const char* getLevelString(Logger::Level level) {

@@ -14,6 +14,28 @@ eventSource.onmessage = function(event) {
     updateDashboard(data);
 };
 
+eventSource.addEventListener('open', function(event) {
+    console.log('SSE connection opened');
+});
+
+eventSource.addEventListener('update', function(event) {
+    console.log('Received SSE update:', event.data);
+    try {
+        const data = JSON.parse(event.data);
+        updateDashboard(data);
+    } catch (error) {
+        console.error('Error parsing SSE data:', error);
+    }
+});
+
+eventSource.addEventListener('error', function(event) {
+    if (event.target.readyState === EventSource.CLOSED) {
+        console.log('SSE connection closed');
+    } else {
+        console.error('SSE connection error:', event);
+    }
+});
+
 // Update dashboard with new data
 function updateDashboard(data) {
     // Update plant moisture levels
