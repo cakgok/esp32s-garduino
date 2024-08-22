@@ -7,7 +7,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "ESPLogger.h"
-#define TAG "LCDManager"
 
 class LCDManager {
 private:
@@ -24,9 +23,9 @@ private:
     }
 
     void runTask() {
-        Logger::instance().log("TAG", Logger::Level::INFO, "Waiting before starting LCD update task...");
+        Logger::instance().log("LCDManager", Logger::Level::INFO, "Waiting before starting LCD update task...");
         vTaskDelay(pdMS_TO_TICKS(STARTUP_DELAY_MS));
-        Logger::instance().log("TAG", Logger::Level::INFO, "Starting LCD update task");
+        Logger::instance().log("LCDManager", Logger::Level::INFO, "Starting LCD update task");
         
         while (true) {
             updateDisplay();

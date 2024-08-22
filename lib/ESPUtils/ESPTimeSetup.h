@@ -3,7 +3,6 @@
 
 #include <time.h>
 #include "ESPLogger.h"  
-#define TAG "Time"
 
 class ESPTimeSetup {
 public:
@@ -20,10 +19,10 @@ public:
         
         struct tm timeinfo;
         if(!getLocalTime(&timeinfo)){
-            logger.log("TAG", Logger::Level::ERROR, "Failed to obtain time");
+            logger.log("TimeWrapper", Logger::Level::ERROR, "Failed to obtain time");
             return;
         }
-        logger.log("TAG", Logger::Level::INFO, "Got time from NTP");
+        logger.log("TimeWrapper", Logger::Level::INFO, "Got time from NTP");
     }
 
     void setNTPServer(const char* server) {

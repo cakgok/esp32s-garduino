@@ -9,7 +9,7 @@
 #include "SensorManager.h"
 #include "ConfigManager.h"
 #include "MQTTManager.h"
-#define TAG "PublishManager"
+
 class SensorPublishTask {
 private:
     SensorManager& sensorManager;
@@ -24,9 +24,9 @@ private:
     }
 
     void delayedStart() {
-        Logger::instance().log("TAG", Logger::Level::INFO, "Waiting before starting sensor publish task...");
+        Logger::instance().log("PublishManager", Logger::Level::INFO, "Waiting before starting sensor publish task...");
         vTaskDelay(pdMS_TO_TICKS(STARTUP_DELAY_MS));
-        Logger::instance().log("TAG", Logger::Level::INFO, "Starting sensor publish task");
+        Logger::instance().log("PublishManager", Logger::Level::INFO, "Starting sensor publish task");
         publishSensorData();
     }
 
@@ -55,7 +55,7 @@ private:
                 uint32_t publishInterval = softwareConfig.sensorPublishInterval;
                 vTaskDelay(pdMS_TO_TICKS(publishInterval));
             } else {
-                Logger::instance().log("TAG", Logger::Level::WARNING, "MQTT not connected. Waiting before retry.");
+                Logger::instance().log("PublishManager", Logger::Level::WARNING, "MQTT not connected. Waiting before retry.");
                 vTaskDelay(pdMS_TO_TICKS(5000)); // Wait 5 seconds before checking connection again
             }
         }

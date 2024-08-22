@@ -13,7 +13,10 @@
 class RelayManager {
 public:
     RelayManager(const ConfigManager& configManager, SensorManager& sensorManager)
-        : logger(Logger::instance()), configManager(configManager), sensorManager(sensorManager), activeRelayIndex(-1) {
+        : logger(Logger::instance()), configManager(configManager), sensorManager(sensorManager), 
+          activeRelayIndex(-1), deactivationTask(nullptr), deactivationInProgress(false) {}
+    
+    void init() {
         const auto& hwConfig = configManager.getCachedHardwareConfig();
         for (size_t i = 0; i < hwConfig.relayPins.size(); ++i) {
             int pin = hwConfig.relayPins[i];
@@ -27,15 +30,23 @@ public:
     }
     
     bool activateRelay(int relayIndex) {
-        std::lock_guard<std::mutex> lock(relayMutex);
+
         const auto& hwConfig = configManager.getCachedHardwareConfig();
-        
+        int relayPin = hwConfig.relayPins[relayIndex];
+
+        while (deactivationInProgress.load(std::memory_order_acquire)) {
+            vTaskDelay(pdMS_TO_TICKS(1));  // Small delay to prevent busy-waiting
+        }
+
+        if (activeRelayIndex == relayIndex) {
+            logger.log("RelayManager", LogLevel::INFO, "Relay %d is already active", relayIndex);
+            return true;
+        }
+                
         if (relayIndex < 0 || relayIndex >= static_cast<int>(hwConfig.relayPins.size())) {
             logger.log("RelayManager", LogLevel::ERROR, "Invalid relay index: %d", relayIndex);
             return false;
         }
-
-        int relayPin = hwConfig.relayPins[relayIndex];
 
         if (!sensorManager.getSensorData().waterLevel) {
             logger.log("RelayManager", LogLevel::WARNING, "Water level too low, cannot activate relay %d", relayIndex);
@@ -63,12 +74,10 @@ public:
     }
 
     bool deactivateRelay(int relayIndex) {
-        std::lock_guard<std::mutex> lock(relayMutex);
         return deactivateRelayInternal(relayIndex);
     }
 
     bool isRelayActive(int relayIndex) {
-        std::lock_guard<std::mutex> lock(relayMutex);
         logger.log("RelayManager", LogLevel::DEBUG, "Checking if relay %d is active: %s", relayIndex, relayStates[relayIndex] ? "true" : "false");
         return relayStates[relayIndex];
     }
@@ -77,26 +86,46 @@ public:
         if (index >= ConfigConstants::RELAY_COUNT) return false;
         return relayStates[index];
     }
+
+    void startControlWateringTask() {
+        xTaskCreate(
+            controlWateringTaskWrapper,
+            "WateringControl",
+            4096,
+            this,
+            1,
+            nullptr
+        );
+        logger.log("RelayManager", LogLevel::INFO, "Watering control task started");
+    }
     
 private:
     const ConfigManager& configManager;
     SensorManager& sensorManager;
     std::map<int, int64_t> lastWateringTime;
-    std::map<int, TaskHandle_t> deactivationTasks;
-    std::mutex relayMutex;
+    TaskHandle_t deactivationTask;
     int activeRelayIndex;
     Logger& logger;
     std::array<bool, ConfigConstants::RELAY_COUNT> relayStates = {false};
+    std::atomic<bool> deactivationInProgress;
+    std::atomic<bool> stopDeactivationTask;
 
     bool deactivateRelayInternal(int relayIndex) {
+
+        if (!relayStates[relayIndex]) {
+            logger.log("RelayManager", LogLevel::INFO, "Relay %d is already inactive", relayIndex);
+            return true;
+        }
+
+        deactivationInProgress.store(true, std::memory_order_release);
+
         const auto& hwConfig = configManager.getCachedHardwareConfig();
         int relayPin = hwConfig.relayPins[relayIndex];
-
-        auto it = deactivationTasks.find(relayIndex);
-        if (it != deactivationTasks.end() && it->second != nullptr) {
-            logger.log("RelayManager", LogLevel::DEBUG, "Deleting deactivation task for relay %d", relayIndex);
-            vTaskDelete(it->second);
-            deactivationTasks.erase(it);
+        if (deactivationTask != nullptr) {
+            stopDeactivationTask.store(true, std::memory_order_release);
+            vTaskDelay(pdMS_TO_TICKS(10));  // Give the task a moment to stop
+            vTaskDelete(deactivationTask);
+            deactivationTask = nullptr;
         }
 
         relayStates[relayIndex] = false;
@@ -108,6 +137,7 @@ private:
             logger.log("RelayManager", LogLevel::DEBUG, "Cleared active relay index");
         }
 
+        deactivationInProgress.store(false, std::memory_order_release);
         return true;
     }
 
@@ -119,100 +149,112 @@ private:
     struct DeactivationParams {
         RelayManager* manager;
         int relayIndex;
+        std::atomic<bool>* stopFlag;
     };
 
+    static void deactivationTaskFunction(void* pvParameters) {
+        DeactivationParams* params = static_cast<DeactivationParams*>(pvParameters);
+        RelayManager* self = params->manager;
+        int relayIndex = params->relayIndex;
+        std::atomic<bool>* stopFlag = params->stopFlag;
+        
+        const auto& sensorConfig = self->configManager.getCachedSensorConfig(relayIndex);
+        self->logger.log("RelayManager", LogLevel::DEBUG, "Deactivation task started for relay %d, waiting for %d ms", relayIndex, sensorConfig.activationPeriod);
+        
+        TickType_t delayInterval = pdMS_TO_TICKS(100);  // Check every 100ms
+        TickType_t totalDelay = pdMS_TO_TICKS(sensorConfig.activationPeriod);
+        
+        while (totalDelay > 0) {
+            if (stopFlag->load(std::memory_order_acquire)) {
+                self->logger.log("RelayManager", LogLevel::DEBUG, "Deactivation task for relay %d stopped prematurely", relayIndex);
+                break;
+            }
+            
+            vTaskDelay(delayInterval);
+            totalDelay -= delayInterval;
+        }
+        
+        if (!stopFlag->load(std::memory_order_acquire)) {
+            self->logger.log("RelayManager", LogLevel::DEBUG, "Deactivation time reached for relay %d, deactivating", relayIndex);
+            self->deactivationInProgress.store(true, std::memory_order_release);
+            self->deactivateRelay(relayIndex);
+            self->deactivationInProgress.store(false, std::memory_order_release);
+        }
+        
+        delete params;
+        vTaskDelete(nullptr);
+    }
+
     void scheduleDeactivation(int relayIndex, uint32_t duration) {
-        DeactivationParams* params = new DeactivationParams{this, relayIndex};
-        TaskHandle_t taskHandle;
+        stopDeactivationTask.store(false, std::memory_order_release);
+        DeactivationParams* params = new DeactivationParams{this, relayIndex, &stopDeactivationTask};
         BaseType_t taskCreated = xTaskCreate(
-            deactivationTask,
+            deactivationTaskFunction,
             "DeactivateRelay",
             4096,
             params,
             1,
-            &taskHandle
+            nullptr 
         );
 
         if (taskCreated != pdPASS) {
             delete params;
             logger.log("RelayManager", LogLevel::ERROR, "Failed to create deactivation task for relay %d", relayIndex);
         } else {
-            deactivationTasks[relayIndex] = taskHandle;
             logger.log("RelayManager", LogLevel::INFO, "Deactivation scheduled for relay %d after %d ms", relayIndex, duration);
         }
     }
 
-    static void deactivationTask(void* pvParameters) {
-        DeactivationParams* params = static_cast<DeactivationParams*>(pvParameters);
-        RelayManager* self = params->manager;
-        int relayIndex = params->relayIndex;
-        
-        const auto& sensorConfig = self->configManager.getCachedSensorConfig(relayIndex);
-        self->logger.log("RelayManager", LogLevel::DEBUG, "Deactivation task started for relay %d, waiting for %d ms", relayIndex, sensorConfig.activationPeriod);
-        vTaskDelay(pdMS_TO_TICKS(sensorConfig.activationPeriod));
-        
-        self->logger.log("RelayManager", LogLevel::DEBUG, "Deactivation time reached for relay %d, deactivating", relayIndex);
-        self->deactivateRelay(relayIndex);
-        
-        self->deactivationTasks.erase(relayIndex);
-        delete params;
-        vTaskDelete(nullptr);
+    static constexpr TickType_t RELAY_CHECK_INTERVAL = pdMS_TO_TICKS(5 * 60 * 1000);  // 5 minutes
+    static constexpr TickType_t INITIAL_DELAY = pdMS_TO_TICKS(10 * 60 * 1000);  // 10 minutes
+
+    void controlWateringTask() {
+        // Initial delay
+        vTaskDelay(INITIAL_DELAY);
+
+        while (true) {
+            const SensorData& sensorData = sensorManager.getSensorData();
+            const auto& hwConfig = configManager.getCachedHardwareConfig();
+
+            // Check water level first
+            if (sensorData.waterLevel) {
+                int64_t currentTime = esp_timer_get_time();
+
+                for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; ++i) {
+                    const auto& config = configManager.getCachedSensorConfig(i);
+                    
+                    // Skip if relay or sensor is disabled
+                    if (!config.relayEnabled || !config.sensorEnabled) {
+                        continue;
+                    }
+
+                    // Check if enough time has passed since last watering
+                    int64_t timeSinceLastWatering = currentTime - lastWateringTime[i];
+                    if (timeSinceLastWatering < config.wateringInterval) {
+                        continue;
+                    }
+
+                    // Check moisture level
+                    if (sensorData.moisture[i] < config.threshold) {
+                        // All conditions met, activate the relay
+                        logger.log("RelayManager", LogLevel::INFO, "Activating relay %d due to low moisture", i);
+                        activateRelay(i);
+                        break;  // Exit the loop after activating a relay
+                    }
+                }
+            } else {
+                logger.log("RelayManager", LogLevel::WARNING, "Water level too low, skipping relay checks");
+            }
+
+            // Always wait for the full interval before the next cycle
+            vTaskDelay(RELAY_CHECK_INTERVAL);
+        }
     }
 
-    // void controlWatering() {
-    //     std::lock_guard<std::mutex> lock(relayMutex);
-    //     int64_t currentTime = esp_timer_get_time();
-    //     const SensorData& sensorData = sensorManager.getSensorData();    
-    //     const auto& hwConfig = configManager.getCachedHardwareConfig();
-
-    //     logger.log("RelayManager", LogLevel::DEBUG, "Starting watering control cycle");
-
-    //     for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; ++i) {
-    //         const auto& config = configManager.getCachedSensorConfig(i);
-    //         if (config.sensorEnabled && config.relayEnabled) {
-    //             int relayIndex = i;  // The index is now directly correlated with the config
-
-    //             int64_t timeSinceLastWatering = currentTime - lastWateringTime[relayIndex];
-
-    //             auto moistureIt = sensorData.moisture.find(config.sensorPin);
-    //             if (moistureIt != sensorData.moisture.end()) {
-    //                 logger.log("RelayManager", LogLevel::DEBUG, "Checking relay %d: moisture = %f, threshold = %f, time since last watering = %lld ms",
-    //                            relayIndex, moistureIt->second, config.threshold, timeSinceLastWatering / 1000);
-
-    //                 if (timeSinceLastWatering >= config.wateringInterval &&
-    //                     moistureIt->second < config.threshold &&
-    //                     activeRelayIndex == -1) {
-    //                     logger.log("RelayManager", LogLevel::INFO, "Activating relay %d due to low moisture on sensor pin %d", relayIndex, config.sensorPin);
-    //                     activateRelay(relayIndex);
-    //                     break;  // Only activate one relay at a time
-    //                 }
-    //             } else {
-    //                 logger.log("RelayManager", LogLevel::WARNING, "No moisture data found for sensor pin %d", config.sensorPin);
-    //             }
-    //         }
-    //     }
-
-    //     logger.log("RelayManager", LogLevel::DEBUG, "Finished watering control cycle");
-    // }
-
-// public:
-//     void startControlTask() {
-//         logger.log("RelayManager", LogLevel::INFO, "Starting watering control task");
-//         xTaskCreate(
-//             [](void* pvParameters) {
-//                 RelayManager* self = static_cast<RelayManager*>(pvParameters);
-//                 while (true) {
-//                     self->controlWatering();
-//                     vTaskDelay(pdMS_TO_TICKS(1000)); // Check every second
-//                 }
-//             },
-//             "WateringControl",
-//             4096,
-//             this,
-//             1,
-//             nullptr
-//         );
-//     }
+    static void controlWateringTaskWrapper(void* pvParameters) {
+        RelayManager* self = static_cast<RelayManager*>(pvParameters);
+        self->controlWateringTask();
+    }
 };
 
 #endif // RELAY_MANAGER_H

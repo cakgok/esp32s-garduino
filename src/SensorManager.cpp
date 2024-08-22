@@ -1,5 +1,5 @@
 #include "SensorManager.h"
-#define TAG "SensorManager"
+
 SensorManager::SensorManager(ConfigManager& configManager)
     : configManager(configManager), logger(Logger::instance()), sensorTaskHandle(nullptr) {}
 
@@ -29,9 +29,9 @@ void SensorManager::startSensorTask() {
             &sensorTaskHandle,
             1
         );
-        logger.log("TAG", LogLevel::INFO, "Sensor task started");
+        logger.log("SensorManager", LogLevel::INFO, "Sensor task started");
     } else {
-        logger.log("TAG", LogLevel::WARNING, "Sensor task already running");
+        logger.log("SensorManager", LogLevel::WARNING, "Sensor task already running");
     }
 }
 
@@ -39,25 +39,25 @@ void SensorManager::setupFloatSwitch() {
     const auto& hwConfig = configManager.getCachedHardwareConfig();
     floatSwitchPin = hwConfig.floatSwitchPin;
     pinMode(floatSwitchPin, INPUT_PULLUP);
-    logger.log("TAG", LogLevel::INFO, "Float switch setup on pin %d", floatSwitchPin);
+    logger.log("SensorManager", LogLevel::INFO, "Float switch setup on pin %d", floatSwitchPin);
 }
 
 void SensorManager::setupSensors() {
     const auto& hwConfig = configManager.getCachedHardwareConfig();
     Wire.begin(hwConfig.sdaPin, hwConfig.sclPin);
-    logger.log("TAG", LogLevel::INFO, "I2C initialized on SDA: %d, SCL: %d", hwConfig.sdaPin, hwConfig.sclPin);
+    logger.log("SensorManager", LogLevel::INFO, "I2C initialized on SDA: %d, SCL: %d", hwConfig.sdaPin, hwConfig.sclPin);
 
     if (!bmp.begin()) {
-        logger.log("TAG", LogLevel::ERROR, "Could not find a valid BMP085 sensor, check wiring!");
+        logger.log("SensorManager", LogLevel::ERROR, "Could not find a valid BMP085 sensor, check wiring!");
         while (1) {}
     }
-    logger.log("TAG", LogLevel::INFO, "BMP085 sensor initialized");
+    logger.log("SensorManager", LogLevel::INFO, "BMP085 sensor initialized");
 
     for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; ++i) {
         const auto& sensorConfig = configManager.getCachedSensorConfig(i);
         if (sensorConfig.sensorEnabled) {
             pinMode(sensorConfig.sensorPin, INPUT);
-            logger.log("TAG", LogLevel::INFO, "Moisture sensor %zu enabled on pin %d", i, sensorConfig.sensorPin);
+            logger.log("SensorManager", LogLevel::INFO, "Moisture sensor %zu enabled on pin %d", i, sensorConfig.sensorPin);
         }
     }
 }
@@ -68,7 +68,7 @@ void SensorManager::updateSensorData() {
     for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; ++i) {
         const auto& sensorConfig = configManager.getCachedSensorConfig(i);
         if (sensorConfig.sensorEnabled) {
-            data.moisture[sensorConfig.sensorPin] = readMoistureSensor(sensorConfig.sensorPin);
+            data.moisture[i] = readMoistureSensor(sensorConfig.sensorPin);
         }
     }
 
@@ -78,7 +78,7 @@ void SensorManager::updateSensorData() {
     data.pressure = bmp.readPressure() / 100.0F;
     data.waterLevel = checkWaterLevel();
 
-    logger.log("TAG", LogLevel::DEBUG, "Sensor data updated: Temp: %.2f°C, Pressure: %.2f hPa, Water Level: %s", 
+    logger.log("SensorManager", LogLevel::DEBUG, "Sensor data updated: Temp: %.2f°C, Pressure: %.2f hPa, Water Level: %s", 
                data.temperature, data.pressure, data.waterLevel ? "OK" : "Low");
 }
 
@@ -96,7 +96,7 @@ float SensorManager::readMoistureSensor(int sensorPin) {
     }
     float average = sum / SAMPLES;
     float moisturePercentage = map(average, 0, 4095, 0, 100);
-    logger.log("TAG", LogLevel::DEBUG, "Moisture sensor on pin %d read: %.2f%%", sensorPin, moisturePercentage);
+    logger.log("SensorManager", LogLevel::DEBUG, "Moisture sensor on pin %d read: %.2f%%", sensorPin, moisturePercentage);
     return moisturePercentage;
 }
 
@@ -105,6 +105,6 @@ bool SensorManager::checkWaterLevel() {
     vTaskDelay(pdMS_TO_TICKS(10));
     bool waterLevel = digitalRead(floatSwitchPin);
     digitalWrite(floatSwitchPin, LOW);
-    logger.log("TAG", LogLevel::DEBUG, "Water level check: %s", waterLevel ? "OK" : "Low");
+    logger.log("SensorManager", LogLevel::DEBUG, "Water level check: %s", waterLevel ? "OK" : "Low");
     return waterLevel;
 }

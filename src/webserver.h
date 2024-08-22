@@ -16,7 +16,7 @@
 #include "ESPLogger.h"
 #include "WebsocketManager.h"
 #include "JsonHandler.h"
-#define TAG  "WebServer"
+
 class ESP32WebServer {
 private:
     AsyncWebServer server;
@@ -68,7 +68,7 @@ private:
         auto logs = logger.getChronologicalLogs();
         for (const auto& log : logs) {
             JsonObject logObj = logsArray.add<JsonObject>();
-            logObj["tag"] = log.tag;
+            logObj["WebServer"] = log.tag;
             logObj["level"] = static_cast<int>(log.level);
             logObj["message"] = log.message;
         }
@@ -109,7 +109,7 @@ private:
         AsyncResponseStream *response = request->beginResponseStream("application/json");
         JsonDocument doc = jsonHandler.createSensorDataJson(sensorManager, relayManager, configManager);
         serializeJson(doc, *response);
-        logger.log("TAG", Logger::Level::INFO, "Sending sensor data to client");
+        logger.log("WebServer", Logger::Level::INFO, "Sending sensor data to client");
         request->send(response);
     }
 
@@ -165,7 +165,7 @@ public:
 
     void begin() {
         server.begin();
-        logger.log("TAG", Logger::Level::INFO, "Async HTTP server started on port {} with WebSocket support", serverPort);
+        logger.log("WebServer", Logger::Level::INFO, "Async HTTP server started on port {} with WebSocket support", serverPort);
     }
 
     void handleLogMessage(std::string_view tag, Logger::Level level, std::string_view message) {

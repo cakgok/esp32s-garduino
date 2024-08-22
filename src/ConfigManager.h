@@ -14,7 +14,6 @@
 #include <variant>
 #include "Globals.h"
 #include "ESPLogger.h"
-#define TAG "ConfigManager"
 class ConfigManager {
 public:
     struct SensorConfig {
@@ -86,11 +85,11 @@ public:
         bool result = preferences.begin(name, false);
         if (result) {
             if (!preferences.isKey("initialized")) {
-                logger.log("TAG", LogLevel::INFO, "First run, initializing default values");
+                logger.log("ConfigManager", LogLevel::INFO, "First run, initializing default values");
                 initializeDefaultValues();
                 preferences.putBool("initialized", true);
             } else {
-                logger.log("TAG", LogLevel::INFO, "Config already initialized");
+                logger.log("ConfigManager", LogLevel::INFO, "Config already initialized");
             }
         }
         initializeConfigurations();
@@ -140,7 +139,7 @@ public:
 
     void setSensorConfig(size_t index, const SensorConfig& config) {
         if (index >= ConfigConstants::RELAY_COUNT) {
-            logger.log("TAG", LogLevel::ERROR, "Invalid sensor index: %zu", index);
+            logger.log("ConfigManager", LogLevel::ERROR, "Invalid sensor index: %zu", index);
             return;
         }
 
@@ -206,7 +205,7 @@ public:
         preferences.clear();
         initializeDefaultValues();
         initializeConfigurations();
-        logger.log("TAG", LogLevel::INFO, "Configuration reset to default values");
+        logger.log("ConfigManager", LogLevel::INFO, "Configuration reset to default values");
     }
     
     void end() {
@@ -241,7 +240,7 @@ private:
                     std::string prefKey = getPrefKey(info.prefKey, i);
                     if (!preferences.isKey(prefKey.c_str())) {
                         setValueInternal(prefKey, pinArray[i]);
-                        logger.log("TAG", LogLevel::DEBUG, "Initialized %s %zu to %d", info.prefKey.c_str(), i, pinArray[i]);
+                        logger.log("ConfigManager", LogLevel::DEBUG, "Initialized %s %zu to %d", info.prefKey.c_str(), i, pinArray[i]);
                     }
                 }
             } else {
@@ -282,7 +281,7 @@ private:
 
     std::optional<SensorConfig> getSensorConfig(size_t index) const {
         if (index >= ConfigConstants::RELAY_COUNT) {
-            logger.log("TAG", LogLevel::ERROR, "Invalid sensor index:");
+            logger.log("ConfigManager", LogLevel::ERROR, "Invalid sensor index:");
             return std::nullopt;
         }
 
@@ -369,7 +368,7 @@ private:
             setValueInternal(prefKey, ConfigValue(newValue));
             return true;
         } else {
-            logger.log("TAG", LogLevel::ERROR, "Invalid value for key: %zu", key);
+            logger.log("ConfigManager", LogLevel::ERROR, "Invalid value for key: %zu", key);
             return false;
         }
         return false;

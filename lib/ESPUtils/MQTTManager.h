@@ -4,7 +4,6 @@
 #include <PubSubClient.h>
 #include <WiFiClientSecure.h>
 #include "ESPLogger.h"  // Make sure this is the correct path to your new Logger class
-#define TAG "MQTTManager"
 
 class ESPMQTTManager {
 public:
@@ -30,12 +29,12 @@ public:
         espClient.setCertificate(config.clientCert);
         espClient.setPrivateKey(config.clientKey);
         mqttClient.setServer(config.server, config.port);
-        logger.log("TAG", Logger::Level::INFO, "MQTT client configured");
+        logger.log("MQTTManager", Logger::Level::INFO, "MQTT client configured");
     }
 
     void setCallback(MQTT_CALLBACK_SIGNATURE) {
         mqttClient.setCallback(callback);
-        logger.log("TAG", Logger::Level::INFO, "MQTT callback set");
+        logger.log("MQTTManager", Logger::Level::INFO, "MQTT callback set");
     }
 
     bool reconnect() {
@@ -53,21 +52,21 @@ public:
         }
 
         lastAttemptTime = now;
-        logger.log("TAG", Logger::Level::INFO, "Attempting MQTT connection...");
+        logger.log("MQTTManager", Logger::Level::INFO, "Attempting MQTT connection...");
 
         String clientId = (config.clientID && strcmp(config.clientID, "random") != 0) 
             ? config.clientID 
             : "ESPClient-" + String(random(0xffff), HEX);
 
-        logger.log("TAG", Logger::Level::INFO, "Using client ID: {}", clientId.c_str());
+        logger.log("MQTTManager", Logger::Level::INFO, "Using client ID: {}", clientId.c_str());
 
         if (mqttClient.connect(clientId.c_str(), config.username, config.password)) {
-            logger.log("TAG", Logger::Level::INFO, "Connected to MQTT broker");
+            logger.log("MQTTManager", Logger::Level::INFO, "Connected to MQTT broker");
             retryCount = 0;
             return true;
         } else {
             retryCount++;
-            logger.log("TAG", Logger::Level::ERROR, "Failed to connect to MQTT broker, rc={}, retry={}", mqttClient.state(), retryCount);
+            logger.log("MQTTManager", Logger::Level::ERROR, "Failed to connect to MQTT broker, rc={}, retry={}", mqttClient.state(), retryCount);
             return false;
         }
     }
@@ -75,28 +74,28 @@ public:
 
     bool publish(const char* topic, const char* payload) {
         if (!mqttClient.connected() && !reconnect()) {
-            logger.log("TAG", Logger::Level::ERROR, "Failed to publish: not connected");
+            logger.log("MQTTManager", Logger::Level::ERROR, "Failed to publish: not connected");
             return false;
         }
         bool result = mqttClient.publish(topic, payload);
         if (result) {
-            logger.log("TAG", Logger::Level::INFO, "Published to topic: {}", topic);
+            logger.log("MQTTManager", Logger::Level::INFO, "Published to topic: {}", topic);
         } else {
-            logger.log("TAG", Logger::Level::ERROR, "Failed to publish to topic: {}", topic);
+            logger.log("MQTTManager", Logger::Level::ERROR, "Failed to publish to topic: {}", topic);
         }
         return result;
     }
 
     bool subscribe(const char* topic) {
         if (!mqttClient.connected() && !reconnect()) {
-            logger.log("TAG", Logger::Level::ERROR, "Failed to subscribe: not connected");
+            logger.log("MQTTManager", Logger::Level::ERROR, "Failed to subscribe: not connected");
             return false;
         }
         bool result = mqttClient.subscribe(topic);
         if (result) {
-            logger.log("TAG", Logger::Level::INFO, "Subscribed to topic: {}", topic);
+            logger.log("MQTTManager", Logger::Level::INFO, "Subscribed to topic: {}", topic);
         } else {
-            logger.log("TAG", Logger::Level::ERROR, "Failed to subscribe to topic: {}", topic);
+            logger.log("MQTTManager", Logger::Level::ERROR, "Failed to subscribe to topic: {}", topic);
         }
         return result;
     }
