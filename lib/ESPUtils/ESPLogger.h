@@ -39,8 +39,8 @@ class Logger {
 public:
     enum class Level { DEBUG, INFO, WARNING, ERROR };
 
-    static constexpr size_t MAX_LOGS = 100;
-    static constexpr size_t LOG_SIZE = 512;
+    static constexpr size_t MAX_LOGS = 75;
+    static constexpr size_t LOG_SIZE = 156;
     static constexpr std::string_view DEFAULT_TAG = "DEFAULT";
     static constexpr std::string_view OVERFLOW_MSG = " [LOG OVERFLOW]";
 
