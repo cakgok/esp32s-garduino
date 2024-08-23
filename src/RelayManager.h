@@ -1,3 +1,8 @@
+// Improvements
+// Use of std::map for lastWateringTime and deactivationTimers: using std::array instead, considering we have a fixed number of relays.
+// Ensure that timers are always deleted when no longer needed to prevent memory leaks.
+// The activeRelayIndex is accessed from multiple threads without synchronization. This leads to deadlocks in many cases, should be carefully considered.
+
 #ifndef RELAY_MANAGER_H
 #define RELAY_MANAGER_H
 
@@ -17,7 +22,7 @@ class RelayManager {
 public:
     RelayManager(const ConfigManager& configManager, SensorManager& sensorManager)
         : logger(Logger::instance()), configManager(configManager), sensorManager(sensorManager), 
-          activeRelayIndex(-1), deactivationTask(nullptr), deactivationInProgress(false) {}
+          activeRelayIndex(-1) {}
 
     using NotifyClientsCallback = std::function<void()>;
     
@@ -39,13 +44,10 @@ public:
     }
     
     bool activateRelay(int relayIndex) {
-
+		
+        cancelScheduledDeactivation(relayIndex);
         const auto& hwConfig = configManager.getCachedHardwareConfig();
         int relayPin = hwConfig.relayPins[relayIndex];
-
-        while (deactivationInProgress.load(std::memory_order_acquire)) {
-            vTaskDelay(pdMS_TO_TICKS(1));  // Small delay to prevent busy-waiting
-        }
 
         if (activeRelayIndex == relayIndex) {
             logger.log("RelayManager", LogLevel::INFO, "Relay %d is already active", relayIndex);
@@ -61,7 +63,7 @@ public:
             logger.log("RelayManager", LogLevel::WARNING, "Water level too low, cannot activate relay %d", relayIndex);
             return false;
         }
-
+		
         // Deactivate currently active relay if any
         if (activeRelayIndex != -1 && activeRelayIndex != relayIndex) {
             logger.log("RelayManager", LogLevel::INFO, "Deactivating currently active relay %d before activating relay %d", activeRelayIndex, relayIndex);
@@ -76,9 +78,9 @@ public:
         logger.log("RelayManager", LogLevel::INFO, "Relay %d activated (pin %d)", relayIndex, relayPin);
 
         // Get the corresponding SensorConfig for this relay
-        const auto& sensorConfig = configManager.getCachedSensorConfig(relayIndex);
-        scheduleDeactivation(relayIndex, sensorConfig.activationPeriod);
-
+        const auto& actDuration = configManager.getCachedSensorConfig(relayIndex).activationPeriod;
+		//now scheduele a deactivation here, 
+		scheduleDeactivation(relayIndex, configManager.getCachedSensorConfig(relayIndex).activationPeriod);
         return true;
     }
 
@@ -112,32 +114,65 @@ private:
     const ConfigManager& configManager;
     SensorManager& sensorManager;
     std::map<int, int64_t> lastWateringTime;
-    TaskHandle_t deactivationTask;
     int activeRelayIndex;
     Logger& logger;
     std::array<bool, ConfigConstants::RELAY_COUNT> relayStates = {false};
-    std::atomic<bool> deactivationInProgress;
-    std::atomic<bool> stopDeactivationTask;
     NotifyClientsCallback notifyClientsCallback;
 
-    bool deactivateRelayInternal(int relayIndex) {
+    std::map<int, esp_timer_handle_t> deactivationTimers;
+    std::mutex relayMutex;
 
+    void scheduleDeactivation(int relayIndex, int64_t delayMs) {
+        esp_timer_handle_t timerHandle;
+
+        esp_timer_create_args_t timerArgs = {
+            .callback = &RelayManager::deactivateRelayCallback,
+            .arg = this,
+            .dispatch_method = ESP_TIMER_TASK,
+            .name = "deactivation_timer"
+        };
+
+        esp_timer_create(&timerArgs, &timerHandle);
+        deactivationTimers[relayIndex] = timerHandle;
+        esp_timer_start_once(timerHandle, delayMs * 1000);
+
+        logger.log("RelayManager", LogLevel::DEBUG, "Scheduled deactivation for relay %d in %lld ms", relayIndex, delayMs);
+    }
+
+    void cancelScheduledDeactivation(int relayIndex) {
+        auto it = deactivationTimers.find(relayIndex);
+        if (it != deactivationTimers.end()) {
+            esp_timer_stop(it->second);
+            esp_timer_delete(it->second);
+            deactivationTimers.erase(it);
+
+            logger.log("RelayManager", LogLevel::DEBUG, "Canceled scheduled deactivation for relay %d", relayIndex);
+        }
+    }
+
+    static void deactivateRelayCallback(void* arg) {
+        RelayManager* self = static_cast<RelayManager*>(arg);
+        std::lock_guard<std::mutex> lock(self->relayMutex);
+
+        int relayIndex = self->getActiveRelayIndex();
+        if (relayIndex != -1) {
+            self->deactivateRelayInternal(relayIndex);
+        }
+    }
+
+
+    bool deactivateRelayInternal(int relayIndex) {
+		cancelScheduledDeactivation(relayIndex);
+		//check if a deactivation task for the relay is currently in order, and if there is one clear it. 
+		
         if (!relayStates[relayIndex]) {
             logger.log("RelayManager", LogLevel::INFO, "Relay %d is already inactive", relayIndex);
             return true;
         }
 
-        deactivationInProgress.store(true, std::memory_order_release);
-
         const auto& hwConfig = configManager.getCachedHardwareConfig();
         int relayPin = hwConfig.relayPins[relayIndex];
-        if (deactivationTask != nullptr) {
-            stopDeactivationTask.store(true, std::memory_order_release);
-            vTaskDelay(pdMS_TO_TICKS(10));  // Give the task a moment to stop
-            vTaskDelete(deactivationTask);
-            deactivationTask = nullptr;
-        }
-
+    
         relayStates[relayIndex] = false;
         setRelayHardwareState(relayPin, false);
         logger.log("RelayManager", LogLevel::INFO, "Relay %d deactivated (pin %d)", relayIndex, relayPin);
@@ -147,7 +182,6 @@ private:
             logger.log("RelayManager", LogLevel::DEBUG, "Cleared active relay index");
         }
 
-        deactivationInProgress.store(false, std::memory_order_release);
         return true;
     }
 
@@ -159,67 +193,12 @@ private:
         }    
     }
 
-    struct DeactivationParams {
-        RelayManager* manager;
-        int relayIndex;
-        std::atomic<bool>* stopFlag;
-    };
-
-    static void deactivationTaskFunction(void* pvParameters) {
-        DeactivationParams* params = static_cast<DeactivationParams*>(pvParameters);
-        RelayManager* self = params->manager;
-        int relayIndex = params->relayIndex;
-        std::atomic<bool>* stopFlag = params->stopFlag;
-        
-        const auto& sensorConfig = self->configManager.getCachedSensorConfig(relayIndex);
-        self->logger.log("RelayManager", LogLevel::DEBUG, "Deactivation task started for relay %d, waiting for %d ms", relayIndex, sensorConfig.activationPeriod);
-        
-        TickType_t delayInterval = pdMS_TO_TICKS(100);  // Check every 100ms
-        TickType_t totalDelay = pdMS_TO_TICKS(sensorConfig.activationPeriod);
-        
-        while (totalDelay > 0) {
-            if (stopFlag->load(std::memory_order_acquire)) {
-                self->logger.log("RelayManager", LogLevel::DEBUG, "Deactivation task for relay %d stopped prematurely", relayIndex);
-                break;
-            }
-            
-            vTaskDelay(delayInterval);
-            totalDelay -= delayInterval;
-        }
-        
-        if (!stopFlag->load(std::memory_order_acquire)) {
-            self->logger.log("RelayManager", LogLevel::DEBUG, "Deactivation time reached for relay %d, deactivating", relayIndex);
-            self->deactivationInProgress.store(true, std::memory_order_release);
-            self->deactivateRelay(relayIndex);
-            self->deactivationInProgress.store(false, std::memory_order_release);
-        }
-        
-        delete params;
-        vTaskDelete(nullptr);
-    }
-
-    void scheduleDeactivation(int relayIndex, uint32_t duration) {
-        stopDeactivationTask.store(false, std::memory_order_release);
-        DeactivationParams* params = new DeactivationParams{this, relayIndex, &stopDeactivationTask};
-        BaseType_t taskCreated = xTaskCreate(
-            deactivationTaskFunction,
-            "DeactivateRelay",
-            4096,
-            params,
-            1,
-            nullptr 
-        );
-
-        if (taskCreated != pdPASS) {
-            delete params;
-            logger.log("RelayManager", LogLevel::ERROR, "Failed to create deactivation task for relay %d", relayIndex);
-        } else {
-            logger.log("RelayManager", LogLevel::INFO, "Deactivation scheduled for relay %d after %d ms", relayIndex, duration);
-        }
-    }
-
     static constexpr TickType_t RELAY_CHECK_INTERVAL = pdMS_TO_TICKS(5 * 60 * 1000);  // 5 minutes
     static constexpr TickType_t INITIAL_DELAY = pdMS_TO_TICKS(10 * 60 * 1000);  // 10 minutes
+
+    int getActiveRelayIndex() {
+        return activeRelayIndex;
+    }
 
     void controlWateringTask() {
         // Initial delay
