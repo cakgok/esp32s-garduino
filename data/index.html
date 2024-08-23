@@ -53,7 +53,9 @@
           </div>
           <p class="humidity-text" id="plant4-humidity-text">Humidity: --</p>
       </div>
+  </div>
 
+  <div class="dashboard">
       <div class="card sensor-card">
           <h2>Temperature</h2>
           <p class="sensor-value" id="temperature">--°C</p>
@@ -71,9 +73,16 @@
               <circle cx="25" cy="40" r="8" fill="#2196F3"></circle>
           </svg>
       </div>
-  </div>
 
-  <div class="water-level-indicator" id="water-level-indicator">Water Level: --</div>
+      <div class="card sensor-card">
+        <h2>Water Level</h2>
+        <p class="sensor-value" id="water-level-indicator">--</p>
+        <svg width="50" height="50" viewBox="0 0 50 50">
+            <path d="M25 5 L40 40 H10 Z" fill="none" stroke="#00BCD4" stroke-width="4"></path>
+            <rect x="10" y="40" width="30" height="5" fill="#00BCD4"></rect>
+        </svg>
+      </div>
+    </div>  
 
   <h2>Relay Controls</h2>
   <div class="dashboard">
