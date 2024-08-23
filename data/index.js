@@ -75,15 +75,19 @@ function updateDashboard(data) {
                 // Start countdown
                 startCountdown(countdownElement, relay.activationTime);
             } else {
-                countdownElement.style.display = 'none';
+                // Clear countdown if relay is not active
+                clearCountdown(countdownElement);
             }
         }
     }
 }
 
 function startCountdown(element, duration) {
+    clearCountdown(element); // Clear any existing countdown
+
     let timeLeft = duration;
     element.textContent = formatTime(timeLeft);
+    element.style.display = 'block';
 
     const countdownInterval = setInterval(() => {
         timeLeft--;
@@ -130,12 +134,11 @@ document.querySelectorAll('.toggle-switch input[type="checkbox"]').forEach((chec
                 console.log(`Relay ${data.relayIndex} ${data.message}`);
                 const countdownElement = document.getElementById(`countdown${relayIndex + 1}`);
                 
-                clearCountdown(countdownElement);
-
                 if (active && data.activationPeriod) {
-                    countdownElement.style.display = 'block';
                     const activationPeriodInSeconds = Math.floor(data.activationPeriod / 1000);
                     startCountdown(countdownElement, activationPeriodInSeconds);
+                } else {
+                    clearCountdown(countdownElement);
                 }
             } else {
                 console.error('Relay toggle failed:', data.message);
@@ -149,9 +152,6 @@ document.querySelectorAll('.toggle-switch input[type="checkbox"]').forEach((chec
         });
     });
 });
-
-
-
 
 // Initial dashboard update
 fetch('/api/sensorData')
