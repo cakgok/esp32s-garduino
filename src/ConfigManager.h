@@ -100,7 +100,15 @@ public:
         cachedHardwareConfig = getHardwareConfig();
         cachedSoftwareConfig = getSoftwareConfig();
         for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; ++i) {
-            cachedSensorConfigs[i] = getSensorConfig(i).value_or(SensorConfig{});
+            cachedSensorConfigs[i] = getSensorConfig(i).value_or(SensorConfig{
+                .threshold = ConfigConstants::DEFAULT_THRESHOLD,
+                .activationPeriod = ConfigConstants::DEFAULT_ACTIVATION_PERIOD,
+                .wateringInterval = ConfigConstants::DEFAULT_WATERING_INTERVAL,
+                .sensorEnabled = true,
+                .relayEnabled = true,
+                .sensorPin = ConfigConstants::DEFAULT_MOISTURE_SENSOR_PINS[i],
+                .relayPin = ConfigConstants::DEFAULT_RELAY_PINS[i]
+            });
         }
     }
 
@@ -116,8 +124,13 @@ public:
 
     const SensorConfig& getCachedSensorConfig(size_t index) const {
         std::shared_lock<std::shared_mutex> lock(mutex);
-        return cachedSensorConfigs.at(index);
-    }
+        if (index >= ConfigConstants::RELAY_COUNT) {
+            logger.log("ConfigManager", LogLevel::ERROR, "Invalid sensor index: %zu", index);
+            static const SensorConfig defaultConfig{};
+            return defaultConfig;
+        }
+        return cachedSensorConfigs[index];
+    }   
 
     [[nodiscard]] ConfigValue getValue(ConfigKey key, size_t index = 0) const {
         std::shared_lock<std::shared_mutex> lock(mutex);

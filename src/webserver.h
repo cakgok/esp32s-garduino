@@ -96,6 +96,11 @@ private:
     void handleGetConfig(AsyncWebServerRequest *request) {
         AsyncResponseStream *response = request->beginResponseStream("application/json");
         JsonDocument doc = JsonHandler::createConfigJson(configManager);
+        
+        Serial.println("Final JSON to be sent:");
+        serializeJson(doc, Serial);
+        Serial.println();
+        
         serializeJson(doc, *response);
         request->send(response);
     }
