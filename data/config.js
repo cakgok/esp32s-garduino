@@ -70,7 +70,7 @@ function populateGlobalSettings(config) {
 function createSensorConfigHTML(sensorConfig, index) {
     console.log(`Creating HTML for sensor config ${index}:`, sensorConfig);
     const sensorDiv = document.createElement('div');
-    sensorDiv.className = `sensor-config ${sensorConfig && sensorConfig.sensorEnabled ? '' : 'disabled'}`;
+    sensorDiv.className = `sensor-config ${sensorConfig}`;
     sensorDiv.innerHTML = `
         <h3>Sensor ${index + 1}</h3>
         <div class="checkbox-wrapper">

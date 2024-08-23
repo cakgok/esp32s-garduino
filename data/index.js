@@ -83,15 +83,29 @@ function updateDashboard(data) {
 
 function startCountdown(element, duration) {
     let timeLeft = duration;
+    element.textContent = formatTime(timeLeft);
+
     const countdownInterval = setInterval(() => {
         timeLeft--;
-        if (timeLeft <= 0) {
+        if (timeLeft < 0) {
             clearInterval(countdownInterval);
             element.style.display = 'none';
+            element.dataset.countdownIntervalId = '';
         } else {
             element.textContent = formatTime(timeLeft);
         }
     }, 1000);
+
+    // Store the interval ID on the element
+    element.dataset.countdownIntervalId = countdownInterval;
+}
+
+function clearCountdown(element) {
+    if (element.dataset.countdownIntervalId) {
+        clearInterval(parseInt(element.dataset.countdownIntervalId));
+        element.dataset.countdownIntervalId = '';
+        element.style.display = 'none';
+    }
 }
 
 document.querySelectorAll('.toggle-switch input[type="checkbox"]').forEach((checkbox, index) => {
@@ -109,24 +123,22 @@ document.querySelectorAll('.toggle-switch input[type="checkbox"]').forEach((chec
             },
             body: payload,
         })
-        .then(response => {
-            console.log('Response status:', response.status);
-            console.log('Response headers:', response.headers);
-            return response.text();  // Change this to text() instead of json()
-        })
+        .then(response => response.json())
         .then(data => {
-            console.log('Raw server response:', data);
-            try {
-                const jsonData = JSON.parse(data);
-                console.log('Parsed server response:', jsonData);
-                if (jsonData.success) {
-                    console.log(`Relay ${jsonData.relayIndex} ${jsonData.message}`);
-                } else {
-                    console.error('Relay toggle failed:', jsonData.message);
-                    this.checked = !active; // Revert the slider
+            console.log('Parsed server response:', data);
+            if (data.success) {
+                console.log(`Relay ${data.relayIndex} ${data.message}`);
+                const countdownElement = document.getElementById(`countdown${relayIndex + 1}`);
+                
+                clearCountdown(countdownElement);
+
+                if (active && data.activationPeriod) {
+                    countdownElement.style.display = 'block';
+                    const activationPeriodInSeconds = Math.floor(data.activationPeriod / 1000);
+                    startCountdown(countdownElement, activationPeriodInSeconds);
                 }
-            } catch (error) {
-                console.error('Error parsing JSON response:', error);
+            } else {
+                console.error('Relay toggle failed:', data.message);
                 this.checked = !active; // Revert the slider
             }
         })
@@ -137,6 +149,9 @@ document.querySelectorAll('.toggle-switch input[type="checkbox"]').forEach((chec
         });
     });
 });
+
+
+
 
 // Initial dashboard update
 fetch('/api/sensorData')

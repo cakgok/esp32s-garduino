@@ -41,7 +41,6 @@ private:
         // API endpoints
         server.on("/api/logs", HTTP_GET, std::bind(&ESP32WebServer::handleGetLogs, this, std::placeholders::_1));
         server.on("/api/config", HTTP_GET, std::bind(&ESP32WebServer::handleGetConfig, this, std::placeholders::_1));
-        server.on("/api/config", HTTP_POST, std::bind(&ESP32WebServer::handlePostConfig, this, std::placeholders::_1));
         server.on("/api/sensorData", HTTP_GET, std::bind(&ESP32WebServer::handleGetSensorData, this, std::placeholders::_1));
         server.on("/api/resetToDefault", HTTP_GET, std::bind(&ESP32WebServer::handleResetToDefault, this, std::placeholders::_1));
 
@@ -50,8 +49,10 @@ private:
         server.addHandler(events);
 
         // Async JSON
-        AsyncCallbackJsonWebHandler* handler = new AsyncCallbackJsonWebHandler("/api/relay", std::bind(&ESP32WebServer::handlePostRelay, this, std::placeholders::_1, std::placeholders::_2));
-        server.addHandler(handler);
+        AsyncCallbackJsonWebHandler* postRelayHandler = new AsyncCallbackJsonWebHandler("/api/relay", std::bind(&ESP32WebServer::handlePostRelay, this, std::placeholders::_1, std::placeholders::_2));
+        server.addHandler(postRelayHandler);
+        AsyncCallbackJsonWebHandler* postConfigHandler = new AsyncCallbackJsonWebHandler("/api/config", std::bind(&ESP32WebServer::handlePostConfig, this, std::placeholders::_1, std::placeholders::_2));
+        server.addHandler(postConfigHandler);
 
         // Catch-all handler for /api/ routes
         server.on("/api/", HTTP_ANY, [](AsyncWebServerRequest *request){
@@ -104,25 +105,18 @@ private:
         serializeJson(doc, *response);
         request->send(response);
     }
-
-    void handlePostConfig(AsyncWebServerRequest *request) {
-        if (request->hasParam("config", true)) {
-            String configJson = request->getParam("config", true)->value();
-            JsonDocument doc;
-            DeserializationError error = deserializeJson(doc, configJson);
-
-            if (error) {
-                request->send(400, "text/plain", "Invalid JSON");
-                return;
-            }
-
-            if (JsonHandler::updateConfig(configManager, doc)) {
+    
+    void handlePostConfig(AsyncWebServerRequest *request, JsonVariant &json) {
+        if (json.is<JsonObject>()) {
+            JsonObject jsonObj = json.as<JsonObject>();
+            
+            if (JsonHandler::updateConfig(configManager, jsonObj)) {
                 request->send(200, "text/plain", "Configuration updated");
             } else {
                 request->send(400, "text/plain", "Failed to update configuration");
             }
         } else {
-            request->send(400, "text/plain", "Missing config parameter");
+            request->send(400, "text/plain", "Invalid JSON format");
         }
     }
 
@@ -146,8 +140,18 @@ private:
                     bool success = active ? relayManager.activateRelay(relayIndex) : relayManager.deactivateRelay(relayIndex);
                     
                     if (success) {
-                        String response = "{\"success\":true,\"relayIndex\":" + String(relayIndex) + 
-                                        ",\"message\":\"Relay " + String(active ? "activated" : "deactivated") + "\"}";
+                        JsonDocument responseDoc;
+                        responseDoc["success"] = true;
+                        responseDoc["relayIndex"] = relayIndex;
+                        responseDoc["message"] = active ? "Relay activated" : "Relay deactivated";
+                        
+                        if (active) {
+                            // Include the activation period from config
+                            responseDoc["activationPeriod"] = configManager.getCachedSensorConfig(relayIndex).activationPeriod;
+                        }
+                        
+                        String response;
+                        serializeJson(responseDoc, response);
                         request->send(200, "application/json", response);
                     } else {
                         request->send(500, "application/json", "{\"success\":false,\"message\":\"Failed to toggle relay\"}");
