@@ -7,12 +7,17 @@ body {
 
 .dashboard {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
     gap: 20px;
     margin-bottom: 20px;
 }
 
-.dashboard:nth-child(3) {
+/* New styles for the first dashboard */
+.dashboard:first-of-type {
+    grid-template-columns: repeat(4, 1fr);
+}
+
+/* Styles for the second dashboard */
+.dashboard:nth-of-type(2) {
     grid-template-columns: repeat(3, 1fr);
 }
 
@@ -27,20 +32,22 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
+    height: auto;
 }
 
 .plant-icon {
-    width: 100px;
-    height: 100px;
+    width: 60px;  /* Reduced size to fit better in the narrower cards */
+    height: 60px;
     margin-bottom: 10px;
 }
 
 .humidity-bar {
     width: 100%;
-    height: 20px;
+    height: 15px;  /* Slightly reduced height */
     background-color: #e0e0e0;
-    border-radius: 10px;
+    border-radius: 7px;  /* Adjusted for the new height */
     overflow: hidden;
+    margin-bottom: 8px;
 }
 
 .humidity-level {
@@ -49,21 +56,27 @@ body {
     transition: width 0.5s ease-in-out;
 }
 
+.humidity-text {
+    margin: 4px 0;
+    font-size: 0.8em;  /* Slightly reduced font size */
+}
+
 .sensor-card {
     text-align: center;
 }
 
 .sensor-value {
-    font-size: 2em;
+    font-size: 1.6em;  /* Slightly reduced font size */
     font-weight: bold;
-    margin: 10px 0;
+    margin: 8px 0;
 }
 
 .toggle-switch {
     position: relative;
     display: inline-block;
-    width: 60px;
-    height: 34px;
+    width: 45px;  /* Slightly reduced size */
+    height: 25px;
+    margin-top: 8px;
 }
 
 .toggle-switch input {
@@ -81,14 +94,14 @@ body {
     bottom: 0;
     background-color: #ccc;
     transition: .4s;
-    border-radius: 34px;
+    border-radius: 25px;
 }
 
 .slider:before {
     position: absolute;
     content: "";
-    height: 26px;
-    width: 26px;
+    height: 18px;  /* Adjusted for the new switch size */
+    width: 18px;
     left: 4px;
     bottom: 4px;
     background-color: white;
@@ -101,20 +114,41 @@ input:checked + .slider {
 }
 
 input:checked + .slider:before {
-    transform: translateX(26px);
-}
-
-.water-level-indicator {
-    text-align: center;
-    font-size: 1.2em;
-    margin: 20px 0;
+    transform: translateX(20px);  /* Adjusted for the new switch size */
 }
 
 .countdown {
     text-align: center;
-    font-size: 1.1em;
-    margin-top: 10px;
+    font-size: 0.8em;  /* Slightly reduced font size */
+    margin-top: 4px;
 }
 
+h1 {
+    text-align: center;
+    color: #2c3e50;
+}
 
+h2 {
+    font-size: 1.1em;  /* Slightly reduced font size */
+    margin: 8px 0;
+    text-align: center;
+}
 
+h3 {
+    font-size: 0.9em;  /* Slightly reduced font size */
+    margin: 8px 0 4px 0;
+    text-align: center;
+}
+
+@media (max-width: 1200px) {
+    .dashboard:first-of-type {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .dashboard:first-of-type,
+    .dashboard:nth-of-type(2) {
+        grid-template-columns: 1fr;
+    }
+}

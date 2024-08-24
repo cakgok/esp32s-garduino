@@ -1,3 +1,15 @@
+// Possible improvements:
+    // Maybe think of splitting the class. But it's easy to reason about the current structure..
+    // ConfigStorage Class: Handle the low-level storage operations (reading/writing to Preferences).
+    // ConfigValidator Class: Handle validation of configuration values.
+    // ConfigCache Class: Manage the caching of configuration values.
+    // ConfigObserver Class: Handle the observer pattern for configuration changes.
+    // ConfigManager Class: Act as a facade, coordinating the above classes.
+// getValue, setValue, getValueInternal, and setValueInternal methods have some duplication. A template method could potentially handle all types.
+// ConfigType struct and getConfigObject function could potentially be replaced with a more straightforward approach using if-constexpr or a map of functions.
+// SensorConfig, HardwareConfig, and SoftwareConfig structs could potentially be generated from the configMap to reduce duplication
+// setSensorConfig, setSoftwareConfig, and setHardwareConfig methods have similar patterns. A template method could potentially handle all types.
+
 #ifndef CONFIG_MANAGER_H
 #define CONFIG_MANAGER_H
 

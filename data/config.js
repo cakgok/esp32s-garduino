@@ -44,15 +44,15 @@ async function fetchConfig() {
 function populateGlobalSettings(config) {
     const elements = [
         { id: 'currentTempOffset', value: config.temperatureOffset.toFixed(1) },
-        { id: 'currentTelemetryInterval', value: formatDuration(config.telemetryInterval) },
-        { id: 'currentSensorUpdateInterval', value: formatDuration(config.sensorUpdateInterval) },
-        { id: 'currentLcdUpdateInterval', value: formatDuration(config.lcdUpdateInterval) },
-        { id: 'currentSensorPublishInterval', value: formatDuration(config.sensorPublishInterval) },
+        { id: 'currentTelemetryInterval', value: formatDuration(config.telemetryInterval, 'seconds') },
+        { id: 'currentSensorUpdateInterval', value: formatDuration(config.sensorUpdateInterval, 'seconds') },
+        { id: 'currentLcdUpdateInterval', value: formatDuration(config.lcdUpdateInterval, 'seconds') },
+        { id: 'currentSensorPublishInterval', value: formatDuration(config.sensorPublishInterval, 'seconds') },
         { id: 'tempOffset', value: config.temperatureOffset },
-        { id: 'telemetryInterval', value: config.telemetryInterval },
-        { id: 'sensorUpdateInterval', value: config.sensorUpdateInterval },
-        { id: 'lcdUpdateInterval', value: config.lcdUpdateInterval },
-        { id: 'sensorPublishInterval', value: config.sensorPublishInterval }
+        { id: 'telemetryInterval', value: config.telemetryInterval / 1000 },
+        { id: 'sensorUpdateInterval', value: config.sensorUpdateInterval / 1000 },
+        { id: 'lcdUpdateInterval', value: config.lcdUpdateInterval / 1000 },
+        { id: 'sensorPublishInterval', value: config.sensorPublishInterval / 1000 }
     ];
 
     elements.forEach(({ id, value }) => {
@@ -95,12 +95,12 @@ function createSensorConfigHTML(sensorConfig, index) {
             <tr>
                 <td>Activation Period (ms)</td>
                 <td id="currentActivationPeriod_${index}">${sensorConfig ? sensorConfig.activationPeriod : 'N/A'}</td>
-                <td class="input-cell"><div class="input-wrapper"><input type="number" id="activationPeriod_${index}" step="1000" min="1000" max="60000" value="${sensorConfig ? sensorConfig.activationPeriod : ''}"></div></td>
+                <td class="input-cell"><div class="input-wrapper"><input type="number" id="activationPeriod_${index}" step="1" min="1" max="60" value="${sensorConfig ? sensorConfig.activationPeriod  / 1000: ''}"></div></td>
             </tr>
             <tr>
                 <td>Watering Interval (ms)</td>
                 <td id="currentWateringInterval_${index}">${sensorConfig ? sensorConfig.wateringInterval : 'N/A'}</td>
-                <td class="input-cell"><div class="input-wrapper"><input type="number" id="wateringInterval_${index}" step="3600000" min="3600000" max="432000000" value="${sensorConfig ? sensorConfig.wateringInterval : ''}"></div></td>
+                <td class="input-cell"><div class="input-wrapper"><input type="number" id="wateringInterval_${index}" step="1" min="1" max="120" value="${sensorConfig ? sensorConfig.wateringInterval / 3600000: ''}"></div></td>
             </tr>
             <tr>
                 <td>Sensor Pin</td>
@@ -179,14 +179,14 @@ function populateForm(config) {
     updateSaveButton();
 }
 
-function formatDuration(ms) {
-    const seconds = ms / 1000;
-    if (seconds < 60) {
-        return `${seconds.toFixed(1)} seconds`;
-    } else if (seconds < 3600) {
-        return `${(seconds / 60).toFixed(1)} minutes`;
-    } else {
-        return `${(seconds / 3600).toFixed(1)} hours`;
+function formatDuration(ms, unit) {
+    switch (unit) {
+        case 'seconds':
+            return `${(ms / 1000).toFixed(1)} seconds`;
+        case 'hours':
+            return `${(ms / 3600000).toFixed(1)} hours`;
+        default:
+            return `${ms} ms`;
     }
 }
 
@@ -198,14 +198,14 @@ function updateSaveButton() {
 async function saveConfig() {
     const newConfig = {
         temperatureOffset: parseFloat(document.getElementById('tempOffset').value),
-        telemetryInterval: parseInt(document.getElementById('telemetryInterval').value),
-        sensorUpdateInterval: parseInt(document.getElementById('sensorUpdateInterval').value),
-        lcdUpdateInterval: parseInt(document.getElementById('lcdUpdateInterval').value),
-        sensorPublishInterval: parseInt(document.getElementById('sensorPublishInterval').value),
+        telemetryInterval: parseInt(document.getElementById('telemetryInterval').value) * 1000,
+        sensorUpdateInterval: parseFloat(document.getElementById('sensorUpdateInterval').value) * 1000,
+        lcdUpdateInterval: parseFloat(document.getElementById('lcdUpdateInterval').value) * 1000,
+        sensorPublishInterval: parseInt(document.getElementById('sensorPublishInterval').value) * 1000,
         sensorConfigs: currentConfig.sensorConfigs.map((_, index) => ({
             threshold: parseFloat(document.getElementById(`threshold_${index}`).value),
-            activationPeriod: parseInt(document.getElementById(`activationPeriod_${index}`).value),
-            wateringInterval: parseInt(document.getElementById(`wateringInterval_${index}`).value),
+            activationPeriod: parseInt(document.getElementById(`activationPeriod_${index}`).value) * 1000,
+            wateringInterval: parseFloat(document.getElementById(`wateringInterval_${index}`).value) * 3600000,
             sensorEnabled: document.getElementById(`sensorEnabled_${index}`).checked,
             relayEnabled: document.getElementById(`relayEnabled_${index}`).checked,
             sensorPin: parseInt(document.getElementById(`sensorPin_${index}`).value),
