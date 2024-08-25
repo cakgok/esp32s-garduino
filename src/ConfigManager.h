@@ -26,6 +26,7 @@
 #include <variant>
 #include "Globals.h"
 #include "ESPLogger.h"
+
 class ConfigManager {
 public:
     struct SensorConfig {
@@ -108,6 +109,8 @@ public:
         return result;
     }
 
+    // @initializeDefaultsValues is called to fill the pref. library with defaults.
+    // @initializeConfigurations is called to fill the cache so that other classes can access it.
     void initializeConfigurations() {
         cachedHardwareConfig = getHardwareConfig();
         cachedSoftwareConfig = getSoftwareConfig();

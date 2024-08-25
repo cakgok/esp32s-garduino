@@ -50,7 +50,7 @@ void setup_wifi() {
   logger.log("Main", LogLevel::INFO, "Connecting to WiFi...");
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   while (WiFi.status() != WL_CONNECTED) {
-    delay(250);
+    delay(100);
     logger.log("Main", LogLevel::INFO, "Waiting for connection...");
   }
 }
