@@ -16,9 +16,12 @@
 
 class ConfigManager {
 public:
-    ConfigManager() : logger(Logger::instance()),
+    ConfigManager(PreferencesHandler& preferencesHandler) : logger(Logger::instance()), prefsHandler(preferencesHandler) {
+        preferences.begin("config", false);
+        initializeConfig();
+    }
                     
-    void init();
+    void initializeConfig();
     
     template<typename T>
     T get(ConfigKey key, size_t sensorIndex = 0);
@@ -31,9 +34,11 @@ public:
     
 
 private:
-    Logger& logger;
+    mutable std::shared_mutex mutex;
     Preferences preferences;
-    std::map<ConfigKey, std::variant<int, float, bool, std::vector<int>, std::vector<bool>, std::vector<int64_t>>> cache;
+    PreferencesHandler& prefsHandler;
+    Logger& logger;
+    static const std::map<ConfigKey, ConfigInfo> configMap;
 
 
     template<typename T>
