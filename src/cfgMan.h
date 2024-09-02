@@ -46,7 +46,7 @@ public:
 
         return std::optional<typename ConfigInfo::value_type>(configInfo.defaultValue);
     }
-
+ 
     template<typename ConfigType, typename T>
     bool set(ConfigType& config, ConfigKey key, const T& value, std::optional<size_t> sensorIndex = std::nullopt) {
         
