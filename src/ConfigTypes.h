@@ -7,28 +7,33 @@
 #include <optional>
 #include <map>
 
-struct SensorConfig {
-    float threshold;
-    uint32_t activationPeriod;
-    uint32_t wateringInterval;
-    bool sensorEnabled;
-    bool relayEnabled;
-};
+// @note std::optional is used in order to facilitate partial updates of the configguration.
+//       This allows us to update only the fields that have changed, without the need to re-send the entire configuration.
+namespace ConfigTypes {
+    struct HardwareConfig {
+        std::optional<int> systemSize;
+        std::optional<int> sdaPin;
+        std::optional<int> sclPin;
+        std::optional<int> floatSwitchPin;
+        std::vector<int> moistureSensorPins;
+        std::vector<int> relayPins;
+    };
 
-struct HardwareConfig {
-    int sdaPin;
-    int sclPin;
-    int floatSwitchPin;
-    std::vector<int> moistureSensorPins;
-    std::vector<int> relayPins;
-};
+    struct SoftwareConfig {
+        std::optional<float> tempOffset;
+        std::optional<uint32_t> telemetryInterval;
+        std::optional<uint32_t> sensorUpdateInterval;
+        std::optional<uint32_t> lcdUpdateInterval;
+        std::optional<uint32_t> sensorPublishInterval;
+    };
 
-struct SoftwareConfig {
-    float tempOffset;
-    uint32_t telemetryInterval;
-    uint32_t sensorUpdateInterval;
-    uint32_t lcdUpdateInterval;
-    uint32_t sensorPublishInterval;
+    struct SensorConfig {
+        std::optional<float> threshold;
+        std::optional<uint32_t> activationPeriod;
+        std::optional<uint32_t> wateringInterval;
+        std::optional<bool> sensorEnabled;
+        std::optional<bool> relayEnabled;
+    };
 };
 
 enum class ConfigKey {
@@ -77,31 +82,7 @@ inline const std::map<ConfigKey, ConfigInfo> configMap = {
     {ConfigKey::SENSOR_UPDATE_INTERVAL, {"swConf", "sensorUpdateInterval", "sui", 60, 10, 3600}},
     {ConfigKey::LCD_UPDATE_INTERVAL, {"swConf", "lcdUpdateInterval", "lui", 5000, 10000, 60000}},
     {ConfigKey::SENSOR_PUBLISH_INTERVAL, {"swConf", "sensorPublishInterval", "spi", 300, 60, 3600}},
-    {ConfigKey::SENSOR_RELAY_MAPPING, {"swConf", "sensorRelyMappings", "srm", std::vector<int>{}, std::nullopt, std::nullopt}},
+    {ConfigKey::SYSTEM_SIZE, {"hwConf", "systemSize", "size", 4, 1, 16}},
 };
 
 #endif // CONFIG_TYPES_H
-
-// inline const std::map<ConfigKey, ConfigInfo> configMap = {
-//     {ConfigKey::SENSOR_THRESHOLD, {"th", 50, 0, 100}},
-//     {ConfigKey::SENSOR_ACTIVATION_PERIOD, {"ap", 3600, 60, 86400}},
-//     {ConfigKey::SENSOR_WATERING_INTERVAL, {"wi", 86400, 3600, 604800}},
-//     {ConfigKey::SENSOR_ENABLED, {"se", true, std::nullopt, std::nullopt}},
-//     {ConfigKey::RELAY_ENABLED, {"re", true, std::nullopt, std::nullopt}},
-// };
-// inline const std::map<ConfigKey, ConfigInfo> hardwareConfigMap = {
-//     {ConfigKey::SYSTEM_SIZE, {"ss", 4, 0, 16}},
-//     {ConfigKey::SENSOR_PIN, {"sp", std::vector<int>{32, 33, 34, 35}, std::nullopt, std::nullopt}},
-//     {ConfigKey::RELAY_PIN, {"rp", std::vector<int>{16, 17, 18, 19}, std::nullopt, std::nullopt}},
-//     {ConfigKey::SDA_PIN, {"sda", 21, std::nullopt, std::nullopt}},
-//     {ConfigKey::SCL_PIN, {"scl", 22, std::nullopt, std::nullopt}},
-//     {ConfigKey::FLOAT_SWITCH_PIN, {"fsp", 23, std::nullopt, std::nullopt}},
-// };
-// inline const std::map<ConfigKey, ConfigInfo> globalConfigMap = {
-//     {ConfigKey::TEMP_OFFSET, {"to", 0.0f, -10.0f, 10.0f}},
-//     {ConfigKey::TELEMETRY_INTERVAL, {"ti", 300, 60, 3600}},
-//     {ConfigKey::SENSOR_UPDATE_INTERVAL, {"sui", 60, 10, 3600}},
-//     {ConfigKey::LCD_UPDATE_INTERVAL, {"lui", 5000, 10000, 60000}},
-//     {ConfigKey::SENSOR_PUBLISH_INTERVAL, {"spi", 300, 60, 3600}},
-//     {ConfigKey::SENSOR_RELAY_MAPPING, {"srm", std::vector<int>{}, std::nullopt, std::nullopt}},
-// };

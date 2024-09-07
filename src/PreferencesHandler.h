@@ -17,7 +17,7 @@
 
 class PreferencesHandler {
 public:
-    PreferencesHandler(Logger& logger) : logger(logger) {}
+    PreferencesHandler() : logger(Logger::instance()) {}
     /**
      * @brief Get the preference key for a given ConfigKey
      * 
@@ -27,11 +27,14 @@ public:
      * 
      * @note This method handles the complexity of generating unique keys for per-sensor
      * configurations. It appends the sensor index to the preference key if the configuration
-     * is sensor-specific (isPerSensor is true in the configMap).
+     * is sensor-specific.
      */
     std::string getPrefKey(ConfigKey key, size_t sensorIndex = 0) const {
         const auto& info = configMap.at(key);
-        return info.isPerSensor ? info.prefKey + std::to_string(sensorIndex) : info.prefKey;
+        if (info.confType == "sensorConf") {
+            return info.prefKey + std::to_string(sensorIndex);
+        }      
+        return info.prefKey;    
     }
 
     /**
@@ -83,7 +86,7 @@ public:
     template<typename T>
     void saveVectorToPreferences(ConfigKey key, const std::vector<T>& value, size_t sensorIndex) {
         preferences.putBytes(getPrefKey(key, sensorIndex).c_str(), value.data(), value.size() * sizeof(T));
-        preferences.putUInt((getPrefKey(key, sensorIndex) + "_size").c_str(), value.size() * sizeof(T));
+        preferences.putUInt((getPrefKey(key, sensorIndex) + "_size").c_str(), value.size());
     }
 
     /**
@@ -128,7 +131,7 @@ public:
      */
     template<typename T>
     T loadFromPreferences(ConfigKey key, const T& defaultValue, size_t sensorIndex) {
-        if constexpr (std::is_same_v<T, int>) {
+        if constexpr (std::is_same_v<T, int> || std::is_same_v<T, unsigned int>) {
             return preferences.getInt(getPrefKey(key, sensorIndex).c_str(), defaultValue);
         } else if constexpr (std::is_same_v<T, float>) {
             return preferences.getFloat(getPrefKey(key, sensorIndex).c_str(), defaultValue);
@@ -140,6 +143,9 @@ public:
             return loadBoolVectorFromPreferences(key, defaultValue, sensorIndex);
         } else if constexpr (std::is_same_v<T, std::vector<int64_t>>) {
             return loadVectorFromPreferences(key, defaultValue, sensorIndex);
+        } else  {
+            // For any other type, just return the default value
+            return defaultValue;
         }
     }
 
@@ -161,16 +167,16 @@ public:
     template<typename T>
     std::vector<T> loadVectorFromPreferences(ConfigKey key, const std::vector<T>& defaultValue, size_t sensorIndex) {
         std::vector<T> vec;
-        size_t size = preferences.getBytes((getPrefKey(key, sensorIndex) + "_size").c_str(), nullptr, 0);
+        size_t size = preferences.getUInt((getPrefKey(key, sensorIndex) + "_size").c_str(), 0);
         if (size > 0) {
-            vec.resize(size / sizeof(T));
-            preferences.getBytes(getPrefKey(key, sensorIndex).c_str(), vec.data(), size);
+            vec.resize(size);
+            preferences.getBytes(getPrefKey(key, sensorIndex).c_str(), vec.data(), size * sizeof(T));
         } else {
             vec = defaultValue;
         }
         return vec;
     }
-    
+
     /**
      * @brief Load a vector of booleans from preferences
      * 
@@ -203,6 +209,11 @@ public:
             vec = defaultValue;
         }
         return vec;
+    }
+
+    void removeFromPreferences(ConfigKey key, size_t sensorIndex) {
+        preferences.remove(getPrefKey(key, sensorIndex).c_str());
+        preferences.remove((getPrefKey(key, sensorIndex) + "_size").c_str());
     }
 
 private:

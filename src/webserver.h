@@ -43,6 +43,7 @@ private:
         server.on("/api/config", HTTP_GET, std::bind(&ESP32WebServer::handleGetConfig, this, std::placeholders::_1));
         server.on("/api/sensorData", HTTP_GET, std::bind(&ESP32WebServer::handleGetSensorData, this, std::placeholders::_1));
         server.on("/api/resetToDefault", HTTP_GET, std::bind(&ESP32WebServer::handleResetToDefault, this, std::placeholders::_1));
+        server.on("/api/setup", HTTP_GET, std::bind(&ESP32WebServer::handleGetSetup, this, std::placeholders::_1));
 
         // Add SSE route
         events = new AsyncEventSource("/api/events");
@@ -71,6 +72,10 @@ private:
         server.serveStatic("/logs.html", LittleFS, "/logs.html");
         server.serveStatic("/logs.css", LittleFS, "/logs.css");
         server.serveStatic("/logs.js", LittleFS, "/logs.js");
+
+        server.serveStatic("/setup.html", LittleFS, "/setup.html");
+        server.serveStatic("/setup.css", LittleFS, "/setup.css");
+        server.serveStatic("/setup.js", LittleFS, "/setup.js");
     }
 
     void handleGetLogs(AsyncWebServerRequest *request) {
@@ -91,6 +96,26 @@ private:
         } else {
             request->send(204); // No Content
             currentOffset = 0; // Reset offset when we've gone through all logs
+        }
+    }
+
+    void handleGetSetup(AsyncWebServerRequest *request) {
+        AsyncResponseStream *response = request->beginResponseStream("application/json");
+        JsonDocument doc = JsonHandler::createSetupJson(configManager);
+        serializeJson(doc, *response);
+        request->send(response);
+    }
+
+    void handlePostSetup(AsyncWebServerRequest *request, JsonVariant &json) {
+        if (json.is<JsonObject>()) {
+            JsonObject jsonObj = json.as<JsonObject>();
+            if (JsonHandler::updateSetup(configManager, jsonObj)) {
+                request->send(200, "application/json", "{\"status\":\"success\"}");
+            } else {
+                request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Failed to update setup\"}");
+            }
+        } else {
+            request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid JSON\"}");
         }
     }
 
@@ -136,7 +161,7 @@ private:
                 int relayIndex = jsonObj["relay"].as<int>();
                 bool active = jsonObj["active"].as<bool>();
                 
-                if (relayIndex >= 0 && relayIndex < ConfigConstants::RELAY_COUNT) {
+                if (relayIndex >= 0 && relayIndex < configManager.getHwConfig().systemSize.value()) {
                     bool success = active ? relayManager.activateRelay(relayIndex) : relayManager.deactivateRelay(relayIndex);
                     
                     if (success) {
@@ -147,7 +172,7 @@ private:
                         
                         if (active) {
                             // Include the activation period from config
-                            responseDoc["activationPeriod"] = configManager.getCachedSensorConfig(relayIndex).activationPeriod;
+                            responseDoc["activationPeriod"] = configManager.getSensorConfig(relayIndex).activationPeriod.value();
                         }
                         
                         String response;

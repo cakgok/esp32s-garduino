@@ -36,10 +36,11 @@ private:
                 SensorData data = sensorManager.getSensorData();
                 JsonDocument doc;
                 
-                for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; ++i) {
-                    const auto& config = configManager.getCachedSensorConfig(i);
+                const auto& hwConf = configManager.getHwConfig();
+                for (size_t i = 0; i < hwConf.moistureSensorPins.size(); ++i) {
+                    const auto& config = configManager.getSensorConfig(i);
                     if (config.sensorEnabled) {
-                        doc["moisture_" + String(config.sensorPin)] = data.moisture[i];
+                        doc["moisture_" + String(i)] = data.moisture[i];
                     }
                 }
                 doc["temperature"] = data.temperature;
@@ -51,8 +52,8 @@ private:
                 
                 mqttManager.publish("esp32/sensor_data", payload.c_str());
 
-                const auto& softwareConfig = configManager.getCachedSoftwareConfig();
-                uint32_t publishInterval = softwareConfig.sensorPublishInterval;
+                const auto& softwareConfig = configManager.getSwConfig();
+                uint32_t publishInterval = softwareConfig.sensorPublishInterval.value();
                 vTaskDelay(pdMS_TO_TICKS(publishInterval));
             } else {
                 Logger::instance().log("PublishManager", Logger::Level::WARNING, "MQTT not connected. Waiting before retry.");

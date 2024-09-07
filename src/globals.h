@@ -33,7 +33,6 @@ namespace ConfigConstants {
     constexpr uint32_t DEFAULT_SENSOR_PUBLISH_INTERVAL = 60000; // 30 seconds
 
     // Hardware pins
-    static constexpr size_t RELAY_COUNT = 4;
     constexpr int DEFAULT_SDA_PIN = 21;
     constexpr int DEFAULT_SCL_PIN = 22;
     constexpr int DEFAULT_FLOAT_SWITCH_PIN = 32;

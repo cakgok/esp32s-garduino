@@ -29,8 +29,8 @@ private:
         
         while (true) {
             updateDisplay();
-            const auto& softwareConfig = configManager.getCachedSoftwareConfig();
-            vTaskDelay(pdMS_TO_TICKS(softwareConfig.lcdUpdateInterval));
+            const auto& softwareConfig = configManager.getSwConfig();
+            vTaskDelay(pdMS_TO_TICKS(softwareConfig.lcdUpdateInterval.value()));
         }
     }
 
@@ -64,11 +64,13 @@ private:
     }
 
     String getMoistureDisplay(int sensorIndex) {
-        const auto& sensorConfig = configManager.getCachedSensorConfig(sensorIndex);
+        const auto& sensorConfig = configManager.getSensorConfig(sensorIndex);
+        const auto& hwConfig = configManager.getHwConfig();
+    
         if (sensorConfig.sensorEnabled) {
             const auto& moistureData = sensorManager.getSensorData().moisture;
-            if (sensorConfig.sensorPin < moistureData.size()) {
-                return String(moistureData[sensorConfig.sensorPin], 1) + "%";
+            if ( sensorIndex < moistureData.size() ) {
+                return String(moistureData[sensorIndex], 1) + "%";
             } else {
                 return "N/A";
             }
@@ -76,6 +78,7 @@ private:
             return "Disabled";
         }
     }
+
 public:
     LCDManager(LiquidCrystal_I2C& lcd, SensorManager& sm, ConfigManager& cm)
         : lcd(lcd), sensorManager(sm), configManager(cm), taskHandle(NULL), currentDisplay(0) {}

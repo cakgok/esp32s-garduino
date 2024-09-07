@@ -8,17 +8,24 @@
 #include "SensorManager.h"
 
 SensorManager::SensorManager(ConfigManager& configManager)
-    : configManager(configManager), logger(Logger::instance()), sensorTaskHandle(nullptr) {}
+    : configManager(configManager), 
+    
+      logger(Logger::instance()), 
+      sensorTaskHandle(nullptr) {
+        sizeMoistureData();
+      }
 
 void SensorManager::sensorTaskFunction(void* pvParameters) {
     SensorManager* manager = static_cast<SensorManager*>(pvParameters);
+    int systemSize = manager->configManager.getHwConfig().systemSize.value();
     while (true) {
         manager->updateSensorData();
         uint32_t minInterval = UINT32_MAX;
-        for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; ++i) {
-            const auto& sensorConfig = manager->configManager.getCachedSensorConfig(i);
+
+        for (size_t i = 0; i < systemSize; ++i) {
+            const auto& sensorConfig = manager->configManager.getSensorConfig(i);
             if (sensorConfig.sensorEnabled && sensorConfig.activationPeriod < minInterval) {
-                minInterval = sensorConfig.activationPeriod;
+                minInterval = sensorConfig.activationPeriod.value();
             }
         }
         vTaskDelay(pdMS_TO_TICKS(minInterval == UINT32_MAX ? 1000 : minInterval));
@@ -43,15 +50,15 @@ void SensorManager::startSensorTask() {
 }
 
 void SensorManager::setupFloatSwitch() {
-    const auto& hwConfig = configManager.getCachedHardwareConfig();
-    floatSwitchPin = hwConfig.floatSwitchPin;
+    const auto& hwConfig = configManager.getHwConfig();
+    floatSwitchPin = hwConfig.floatSwitchPin.value();
     pinMode(floatSwitchPin, INPUT_PULLUP);
     logger.log("SensorManager", LogLevel::INFO, "Float switch setup on pin %d", floatSwitchPin);
 }
 
 void SensorManager::setupSensors() {
-    const auto& hwConfig = configManager.getCachedHardwareConfig();
-    Wire.begin(hwConfig.sdaPin, hwConfig.sclPin);
+    const auto& hwConfig = configManager.getHwConfig();
+    Wire.begin(hwConfig.sdaPin.value(), hwConfig.sclPin.value());
     logger.log("SensorManager", LogLevel::INFO, "I2C initialized on SDA: %d, SCL: %d", hwConfig.sdaPin, hwConfig.sclPin);
 
     if (!bmp.begin()) {
@@ -60,28 +67,30 @@ void SensorManager::setupSensors() {
     }
     logger.log("SensorManager", LogLevel::INFO, "BMP085 sensor initialized");
 
-    for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; ++i) {
-        const auto& sensorConfig = configManager.getCachedSensorConfig(i);
+    for (size_t i = 0; i < hwConfig.systemSize.value(); ++i) {
+        const auto& sensorConfig = configManager.getSensorConfig(i);
+        const auto& sensorPins = configManager.getHwConfig().moistureSensorPins;
         if (sensorConfig.sensorEnabled) {
-            pinMode(sensorConfig.sensorPin, INPUT);
-            logger.log("SensorManager", LogLevel::INFO, "Moisture sensor %zu enabled on pin %d", i, sensorConfig.sensorPin);
+            pinMode(hwConfig.moistureSensorPins[i], INPUT);
+            logger.log("SensorManager", LogLevel::INFO, "Moisture sensor %zu enabled on pin %d", i, sensorPins[i]);
         }
     }
 }
 
 void SensorManager::updateSensorData() {
     std::unique_lock<std::shared_mutex> lock(dataMutex);
-
-    for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; ++i) {
-        const auto& sensorConfig = configManager.getCachedSensorConfig(i);
-        if (sensorConfig.sensorEnabled) {
-            data.moisture[i] = readMoistureSensor(sensorConfig.sensorPin);
+    const auto& hwConfig = configManager.getHwConfig();
+    
+    for (size_t i = 0; i < hwConfig.systemSize.value(); ++i) {
+        const bool sensorEnabled = configManager.getSensorConfig(i).sensorEnabled.value();
+        if (sensorEnabled) {
+            data.moisture[i] = readMoistureSensor(hwConfig.moistureSensorPins[i]);
         }
     }
 
     data.temperature = bmp.readTemperature();
-    const auto& swConfig = configManager.getCachedSoftwareConfig();
-    data.temperature += swConfig.tempOffset;
+    const auto& swConfig = configManager.getSwConfig();
+    data.temperature += swConfig.tempOffset.value();
     data.pressure = bmp.readPressure() / 100.0F;
     data.waterLevel = checkWaterLevel();
 
@@ -114,4 +123,9 @@ bool SensorManager::checkWaterLevel() {
     digitalWrite(floatSwitchPin, LOW);
     logger.log("SensorManager", LogLevel::DEBUG, "Water level check: %s", waterLevel ? "OK" : "Low");
     return waterLevel;
+}
+
+void SensorManager::sizeMoistureData() {
+    const auto size = configManager.getHwConfig().systemSize.value();
+    data.moisture.resize(size);
 }

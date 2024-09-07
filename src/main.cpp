@@ -16,6 +16,7 @@
 #include "PublishManager.h"
 #include "RelayManager.h"
 #include "globals.h"
+#include "PreferencesHandler.h"
 
 #define ENABLE_SERIAL_PRINT // Enable serial printing
 
@@ -39,6 +40,7 @@ Adafruit_BMP085 bmp;
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 WiFiClientSecure espClient;
 PubSubClient mqttClient(espClient);
+PreferencesHandler prefsHandler;
 ConfigManager* configManager = nullptr;
 SensorManager* sensorManager = nullptr;
 RelayManager* relayManager = nullptr;
@@ -67,7 +69,7 @@ void setup() {
     logger.setFilterLevel(Logger::Level::DEBUG);
     setup_wifi();
     delay(100);
-    configManager = new ConfigManager();
+    configManager = new ConfigManager(prefsHandler);
     configManager->begin("cfg");
     configManager->initializeConfigurations();
     delay(200);

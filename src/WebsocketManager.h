@@ -121,16 +121,6 @@ private:
         }
         Serial.printf("Sent ping to %u active clients\n", activeClients.size());
     }
-
-    // const char* getLevelString(Logger::Level level) {
-    //     switch (level) {
-    //         case Logger::Level::DEBUG: return "DEBUG";
-    //         case Logger::Level::INFO: return "INFO";
-    //         case Logger::Level::WARNING: return "WARNING";
-    //         case Logger::Level::ERROR: return "ERROR";
-    //         default: return "UNKNOWN";
-    //     }
-    // }
 };
 
 #endif // WEBSOCKET_MANAGER_H

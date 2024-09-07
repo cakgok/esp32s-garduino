@@ -21,7 +21,9 @@ class ESP32WebServer; // Forward declaration
 class RelayManager {
 public:
     RelayManager(const ConfigManager& configManager, SensorManager& sensorManager)
-        : logger(Logger::instance()), configManager(configManager), sensorManager(sensorManager), 
+        : logger(Logger::instance()), 
+          configManager(configManager), 
+          sensorManager(sensorManager), 
           activeRelayIndex(-1) {}
 
     using NotifyClientsCallback = std::function<void()>;
@@ -31,14 +33,15 @@ public:
     }
 
     void init() {
-        const auto& hwConfig = configManager.getCachedHardwareConfig();
+        initRelayStates();
+        const auto& hwConfig = configManager.getHwConfig();
         for (size_t i = 0; i < hwConfig.relayPins.size(); ++i) {
             int pin = hwConfig.relayPins[i];
             pinMode(pin, INPUT);
             digitalWrite(pin, HIGH);  // Assuming relays are active LOW
             pinMode(pin, OUTPUT);
             relayStates[i] = false; // Initialize relay states
-            logger.log("RelayManager", LogLevel::DEBUG, "Initialized relay %d on pin %d", i, pin);
+            logger.log("RelayManager", LogLevel::INFO, "Initialized relay %d on pin %d", i, pin);
         }
         logger.log("RelayManager", LogLevel::INFO, "RelayManager initialized with %d relays", hwConfig.relayPins.size());
     }
@@ -46,7 +49,7 @@ public:
     bool activateRelay(int relayIndex) {
 		
         cancelScheduledDeactivation(relayIndex);
-        const auto& hwConfig = configManager.getCachedHardwareConfig();
+        const auto& hwConfig = configManager.getHwConfig();
         int relayPin = hwConfig.relayPins[relayIndex];
 
         if (activeRelayIndex == relayIndex) {
@@ -78,9 +81,9 @@ public:
         logger.log("RelayManager", LogLevel::INFO, "Relay %d activated (pin %d)", relayIndex, relayPin);
 
         // Get the corresponding SensorConfig for this relay
-        const auto& actDuration = configManager.getCachedSensorConfig(relayIndex).activationPeriod;
+        const auto& actDuration = configManager.getSensorConfig(relayIndex).activationPeriod;
 		//now scheduele a deactivation here, 
-		scheduleDeactivation(relayIndex, configManager.getCachedSensorConfig(relayIndex).activationPeriod);
+		scheduleDeactivation(relayIndex, configManager.getSensorConfig(relayIndex).activationPeriod.value());
         return true;
     }
 
@@ -94,7 +97,7 @@ public:
     }
 
     bool getRelayState(size_t index) const {
-        if (index >= ConfigConstants::RELAY_COUNT) return false;
+        if (index >= configManager.getHwConfig().systemSize) return false;
         return relayStates[index];
     }
 
@@ -116,11 +119,16 @@ private:
     std::map<int, int64_t> lastWateringTime;
     int activeRelayIndex;
     Logger& logger;
-    std::array<bool, ConfigConstants::RELAY_COUNT> relayStates = {false};
+    std::vector<bool> relayStates;
     NotifyClientsCallback notifyClientsCallback;
 
     std::map<int, esp_timer_handle_t> deactivationTimers;
     std::mutex relayMutex;
+
+    void initRelayStates() {
+        int systemSize = configManager.getHwConfig().systemSize.value();
+        relayStates.resize(systemSize, false);
+    }
 
     void scheduleDeactivation(int relayIndex, int64_t delayMs) {
         esp_timer_handle_t timerHandle;
@@ -160,7 +168,6 @@ private:
         }
     }
 
-
     bool deactivateRelayInternal(int relayIndex) {
 		cancelScheduledDeactivation(relayIndex);
 		//check if a deactivation task for the relay is currently in order, and if there is one clear it. 
@@ -170,7 +177,7 @@ private:
             return true;
         }
 
-        const auto& hwConfig = configManager.getCachedHardwareConfig();
+        const auto& hwConfig = configManager.getHwConfig();
         int relayPin = hwConfig.relayPins[relayIndex];
     
         relayStates[relayIndex] = false;
@@ -206,14 +213,14 @@ private:
 
         while (true) {
             const SensorData& sensorData = sensorManager.getSensorData();
-            const auto& hwConfig = configManager.getCachedHardwareConfig();
+            const auto& hwConfig = configManager.getHwConfig();
 
             // Check water level first
             if (sensorData.waterLevel) {
                 int64_t currentTime = esp_timer_get_time();
 
-                for (size_t i = 0; i < ConfigConstants::RELAY_COUNT; ++i) {
-                    const auto& config = configManager.getCachedSensorConfig(i);
+                for (size_t i = 0; i < hwConfig.systemSize.value(); ++i) {
+                    const auto& config = configManager.getSensorConfig(i);
                     
                     // Skip if relay or sensor is disabled
                     if (!config.relayEnabled || !config.sensorEnabled) {

@@ -10,9 +10,10 @@
 #include <Wire.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <vector>
 
 struct SensorData {
-    std::array<float, ConfigConstants::RELAY_COUNT> moisture;
+    std::vector<float> moisture;
     float temperature;
     float pressure;
     bool waterLevel;
@@ -32,7 +33,7 @@ private:
     float readMoistureSensor(int sensorPin);
     bool checkWaterLevel();
     void updateSensorData();
-
+    void sizeMoistureData();
 public:
     SensorManager(ConfigManager& configManager);
     void setupFloatSwitch();
