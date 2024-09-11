@@ -66,22 +66,22 @@ struct ConfigInfo {
 };
 
 inline const std::map<ConfigKey, ConfigInfo> configMap = {
-    {ConfigKey::SENSOR_THRESHOLD, {"sensorConf", "sensorThreshold", "th", 50, 0, 100}},
-    {ConfigKey::SENSOR_ACTIVATION_PERIOD, {"sensorConf", "activationPeriod", "ap", 3600, 60, 86400}},
-    {ConfigKey::SENSOR_WATERING_INTERVAL, {"sensorConf", "wateringInterval", "wi", 86400, 3600, 604800}},
+    {ConfigKey::SENSOR_THRESHOLD, {"sensorConf", "sensorThreshold", "th", 25, 5, 75}},
+    {ConfigKey::SENSOR_ACTIVATION_PERIOD, {"sensorConf", "activationPeriod", "ap", 5000, 1000, 60000}},
+    {ConfigKey::SENSOR_WATERING_INTERVAL, {"sensorConf", "wateringInterval", "wi", 86400000, 3600000, 604800000}},
     {ConfigKey::SENSOR_ENABLED, {"sensorConf", "sensorEnabled", "se", true, std::nullopt, std::nullopt}},
     {ConfigKey::RELAY_ENABLED, {"sensorConf", "relayEnabled", "re", true, std::nullopt, std::nullopt}},
     {ConfigKey::SYSTEM_SIZE, {"global", "systemSize" ,"ss", 4, 0, 16}},
-    {ConfigKey::SENSOR_PIN, {"hwConf", "sensorPin", "sp", std::vector<int>{32, 33, 34, 35}, std::nullopt, std::nullopt}},
-    {ConfigKey::RELAY_PIN, {"hwConf", "relayPin", "rp", std::vector<int>{16, 17, 18, 19}, std::nullopt, std::nullopt}},
+    {ConfigKey::SENSOR_PIN, {"hwConf", "sensorPin", "sp", std::vector<int>{34, 35, 36, 39}, std::nullopt, std::nullopt}},
+    {ConfigKey::RELAY_PIN, {"hwConf", "relayPin", "rp", std::vector<int>{33, 25, 17, 16}, std::nullopt, std::nullopt}},
     {ConfigKey::SDA_PIN, {"hwConf", "sdaPin", "sda", 21, std::nullopt, std::nullopt}},
     {ConfigKey::SCL_PIN, {"hwConf", "sclPin", "scl", 22, std::nullopt, std::nullopt}},
     {ConfigKey::FLOAT_SWITCH_PIN, {"hwConf", "floatSwitchPin", "fsp", 23, std::nullopt, std::nullopt}},
     {ConfigKey::TEMP_OFFSET, {"swConf", "tempOffset", "to", 0.0f, -10.0f, 10.0f}},
-    {ConfigKey::TELEMETRY_INTERVAL, {"swConf", "telemetryInterval", "ti", 300, 60, 3600}},
-    {ConfigKey::SENSOR_UPDATE_INTERVAL, {"swConf", "sensorUpdateInterval", "sui", 60, 10, 3600}},
+    {ConfigKey::TELEMETRY_INTERVAL, {"swConf", "telemetryInterval", "ti", 60000, 10000, 360000}},
+    {ConfigKey::SENSOR_UPDATE_INTERVAL, {"swConf", "sensorUpdateInterval", "sui", 60000, 10000, 36000}},
     {ConfigKey::LCD_UPDATE_INTERVAL, {"swConf", "lcdUpdateInterval", "lui", 5000, 10000, 60000}},
-    {ConfigKey::SENSOR_PUBLISH_INTERVAL, {"swConf", "sensorPublishInterval", "spi", 300, 60, 3600}},
+    {ConfigKey::SENSOR_PUBLISH_INTERVAL, {"swConf", "sensorPublishInterval", "spi", 60000, 10000, 36000}},
     {ConfigKey::SYSTEM_SIZE, {"hwConf", "systemSize", "size", 4, 1, 16}},
 };
 

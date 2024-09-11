@@ -157,7 +157,8 @@ private:
         swConf.sensorPublishInterval = getValue<uint32_t>(ConfigKey::SENSOR_PUBLISH_INTERVAL);
     }
     
-    void createHardwareConfig(size_t systemSize) { 
+    void createHardwareConfig(size_t systemSize) {
+        hwConf.systemSize = systemSize;
         hwConf.sdaPin = getValue<int>(ConfigKey::SDA_PIN);
         hwConf.sclPin = getValue<int>(ConfigKey::SCL_PIN);
         hwConf.floatSwitchPin = getValue<int>(ConfigKey::FLOAT_SWITCH_PIN);

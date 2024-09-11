@@ -13,10 +13,13 @@
 #include <type_traits>
 #include <ArduinoJson.h>
 
-#ifdef ENABLE_SERIAL_PRINT
+#if defined(ENABLE_SERIAL_PRINT) && !defined(ESP_LOGGER_SERIAL_PRINT)
+#define ESP_LOGGER_SERIAL_PRINT
+#endif
+
+#ifdef ESP_LOGGER_SERIAL_PRINT
 #include <Arduino.h>
 #endif
-#define ENABLE_SERIAL_PRINT // Enable serial printing
 
 class Logger {
 public:
@@ -151,10 +154,21 @@ private:
             size_t currentHead = head.load(std::memory_order_relaxed);
             LogEntry& entry = buffer[currentHead];
             
+            // Copy tag (with null termination)
             strncpy(entry.tag, tag.data(), TAG_SIZE - 1);
             entry.tag[TAG_SIZE - 1] = '\0';
             entry.level = level;
-            strncpy(entry.message, message, LOG_SIZE - 1);
+
+            // Copy message with potential overflow handling
+            size_t messageLen = strlen(message);
+            if (messageLen >= LOG_SIZE) {
+                // Message is too long, truncate and append overflow message
+                strncpy(entry.message, message, LOG_SIZE - OVERFLOW_MSG.length() - 1);
+                strcpy(entry.message + LOG_SIZE - OVERFLOW_MSG.length() - 1, OVERFLOW_MSG.data());
+            } else {
+                // Message fits, copy as is
+                strcpy(entry.message, message);
+            }
             entry.message[LOG_SIZE - 1] = '\0';
 
             head.store((currentHead + 1) % MAX_LOGS, std::memory_order_relaxed);
@@ -174,7 +188,7 @@ private:
                 observer(entry.tag, entry.level, entry.message);
             }
 
-            #ifdef ENABLE_SERIAL_PRINT
+            #ifdef ESP_LOGGER_SERIAL_PRINT
             const char* levelStr;
             switch (level) {
                 case Level::DEBUG: levelStr = "DEBUG"; break;

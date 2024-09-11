@@ -1,9 +1,6 @@
-// Potential Improvements:
 // Sensor Abstraction: Consider creating a base Sensor class with derived classes for different sensor types. 
-  // This would make it easier to add new types of sensors in the future.
+// This would make it easier to add new types of sensors in the future.
 // Calibration: For the moisture sensors, we might want to add a calibration mechanism.
-// Data History: The data is sent Influx anyway, might be pointless.
-// Callback System: to notify other parts of the system when a sensor data updates, but again, introduces more tight coupling.
 
 #include "SensorManager.h"
 
@@ -20,15 +17,8 @@ void SensorManager::sensorTaskFunction(void* pvParameters) {
     int systemSize = manager->configManager.getHwConfig().systemSize.value();
     while (true) {
         manager->updateSensorData();
-        uint32_t minInterval = UINT32_MAX;
-
-        for (size_t i = 0; i < systemSize; ++i) {
-            const auto& sensorConfig = manager->configManager.getSensorConfig(i);
-            if (sensorConfig.sensorEnabled && sensorConfig.activationPeriod < minInterval) {
-                minInterval = sensorConfig.activationPeriod.value();
-            }
-        }
-        vTaskDelay(pdMS_TO_TICKS(minInterval == UINT32_MAX ? 1000 : minInterval));
+        uint32_t updateInterval = manager->configManager.getSwConfig().sensorUpdateInterval.value();
+        vTaskDelay(pdMS_TO_TICKS(updateInterval));
     }
 }
 
@@ -128,4 +118,8 @@ bool SensorManager::checkWaterLevel() {
 void SensorManager::sizeMoistureData() {
     const auto size = configManager.getHwConfig().systemSize.value();
     data.moisture.resize(size);
+}
+
+TaskHandle_t SensorManager::getTaskHandle() const {
+    return sensorTaskHandle;
 }

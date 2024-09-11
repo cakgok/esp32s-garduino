@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hardware Setup Configuration</title>
+    <link rel="stylesheet" href="setup.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Hardware Setup Configuration</h1>
+        <form id="setupForm">
+            <table>
+                <tr>
+                    <th>Setting</th>
+                    <th>Current Value</th>
+                    <th>New Value</th>
+                </tr>
+                <tr>
+                    <td>System Size</td>
+                    <td id="currentSystemSize"></td>
+                    <td><input type="number" id="systemSize" min="1" required></td>
+                </tr>
+                <tr>
+                    <td>SDA Pin</td>
+                    <td id="currentSdaPin"></td>
+                    <td><input type="number" id="sdaPin" min="0" required></td>
+                </tr>
+                <tr>
+                    <td>SCL Pin</td>
+                    <td id="currentSclPin"></td>
+                    <td><input type="number" id="sclPin" min="0" required></td>
+                </tr>
+                <tr>
+                    <td>Float Switch Pin</td>
+                    <td id="currentFloatSwitchPin"></td>
+                    <td><input type="number" id="floatSwitchPin" min="0" required></td>
+                </tr>
+            </table>
+
+            <h2>Sensor Pins</h2>
+            <div id="sensorPinsContainer"></div>
+
+            <h2>Relay Pins</h2>
+            <div id="relayPinsContainer"></div>
+
+            <div class="button-group">
+                <button type="submit" id="saveConfig">Save and Restart</button>
+                <button type="button" id="resetToDefault">Reset to Default</button>
+                <button type="button" id="returnToDashboard">Return to Dashboard</button>
+            </div>
+        </form>
+    </div>
+    <script src="setup.js"></script>
+</body>
+</html>

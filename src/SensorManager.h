@@ -40,6 +40,7 @@ public:
     void setupSensors();
     const SensorData& getSensorData() const;
     void startSensorTask();
+    TaskHandle_t getTaskHandle() const;
 };
 
 #endif // SENSORMANAGER_H

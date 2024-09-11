@@ -4,6 +4,7 @@ body {
     margin: 0;
     padding: 20px;
 }
+
 .container {
     max-width: 800px;
     margin: 0 auto;
@@ -12,28 +13,39 @@ body {
     border-radius: 10px;
     box-shadow: 0 0 10px rgba(0,0,0,0.1);
 }
+
 h1, h2 {
     color: #2c3e50;
     text-align: center;
 }
+
+h3 {
+    color: #2c3e50;
+    margin-bottom: 10px;
+}
+
 table {
     width: 100%;
     border-collapse: collapse;
     margin-bottom: 20px;
 }
+
 th, td {
     padding: 10px;
     border: 1px solid #ddd;
     text-align: left;
 }
+
 th {
     background-color: #4CAF50;
     color: white;
 }
+
 .input-cell {
     position: relative;
     height: 30px;
 }
+
 .input-wrapper {
     position: absolute;
     top: 0;
@@ -43,16 +55,16 @@ th {
     display: flex;
     align-items: center;
     justify-content: center;
-    opacity: 1;
-    transition: opacity 0.3s ease;
 }
-input[type="number"], input[type="checkbox"] {
+
+input[type="number"] {
     width: 80%;
     padding: 5px;
     border: 1px solid #ddd;
     border-radius: 4px;
 }
-button {
+
+button, .button {
     background-color: #4CAF50;
     color: white;
     padding: 10px 15px;
@@ -61,51 +73,59 @@ button {
     cursor: pointer;
     margin-right: 10px;
     transition: all 0.3s ease;
+    text-decoration: none;
+    display: inline-block;
 }
-button:hover {
+
+button:hover, .button:hover {
     background-color: #45a049;
 }
-.tooltip {
-    position: relative;
-    display: inline-block;
-    border-bottom: 1px dotted black;
+
+.sensor-config {
+    margin-bottom: 20px;
+    padding: 20px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: #f9f9f9;
 }
-.tooltip .tooltiptext {
-    visibility: hidden;
-    width: 200px;
-    background-color: #555;
-    color: #fff;
-    text-align: center;
-    border-radius: 6px;
-    padding: 5px;
-    position: absolute;
-    z-index: 1;
-    bottom: 125%;
-    left: 50%;
-    margin-left: -100px;
-    opacity: 0;
-    transition: opacity 0.3s;
+
+.sensor-config.disabled .sensor-details {
+    opacity: 0.5;
+    pointer-events: none;
 }
-.tooltip:hover .tooltiptext {
-    visibility: visible;
-    opacity: 1;
+
+.checkbox-group {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 15px;
 }
-.current-value {
+
+.checkbox-wrapper {
+    display: flex;
+    align-items: center;
+}
+
+.checkbox-wrapper label {
+    margin-left: 5px;
     font-weight: bold;
-    color: #2c3e50;
 }
-.modified {
-    background-color: #fffacd;
+
+input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
 }
+
 #saveConfig {
     opacity: 0.5;
     pointer-events: none;
 }
+
 #saveConfig.active {
     opacity: 1;
     pointer-events: auto;
     animation: pulse 2s infinite;
 }
+
 @keyframes pulse {
     0% {
         box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7);
@@ -116,22 +136,4 @@ button:hover {
     100% {
         box-shadow: 0 0 0 0 rgba(76, 175, 80, 0);
     }
-}
-.sensor-config {
-    margin-bottom: 20px;
-    padding: 10px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-}
-.sensor-config.disabled {
-    opacity: 0.5;
-    pointer-events: none;
-}
-.checkbox-wrapper {
-    display: flex;
-    align-items: center;
-    margin-bottom: 10px;
-}
-.checkbox-wrapper label {
-    margin-left: 5px;
 }

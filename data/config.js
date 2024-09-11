@@ -70,49 +70,43 @@ function populateGlobalSettings(config) {
 function createSensorConfigHTML(sensorConfig, index) {
     console.log(`Creating HTML for sensor config ${index}:`, sensorConfig);
     const sensorDiv = document.createElement('div');
-    sensorDiv.className = `sensor-config ${sensorConfig}`;
+    sensorDiv.className = `sensor-config ${sensorConfig.sensorEnabled ? '' : 'disabled'}`;
     sensorDiv.innerHTML = `
         <h3>Sensor ${index + 1}</h3>
-        <div class="checkbox-wrapper">
-            <input type="checkbox" id="sensorEnabled_${index}" ${sensorConfig && sensorConfig.sensorEnabled ? 'checked' : ''}>
-            <label for="sensorEnabled_${index}">Enable Sensor</label>
+        <div class="checkbox-group">
+            <div class="checkbox-wrapper">
+                <input type="checkbox" id="sensorEnabled_${index}" ${sensorConfig.sensorEnabled ? 'checked' : ''}>
+                <label for="sensorEnabled_${index}">Enable Sensor</label>
+            </div>
+            <div class="checkbox-wrapper">
+                <input type="checkbox" id="relayEnabled_${index}" ${sensorConfig.relayEnabled ? 'checked' : ''}>
+                <label for="relayEnabled_${index}">Enable Relay Control</label>
+            </div>
         </div>
-        <div class="checkbox-wrapper">
-            <input type="checkbox" id="relayEnabled_${index}" ${sensorConfig && sensorConfig.relayEnabled ? 'checked' : ''}>
-            <label for="relayEnabled_${index}">Enable Relay Control</label>
+        <div class="sensor-details">
+            <table>
+                <tr>
+                    <th>Setting</th>
+                    <th>Current Value</th>
+                    <th>New Value</th>
+                </tr>
+                <tr>
+                    <td>Threshold</td>
+                    <td id="currentThreshold_${index}">${sensorConfig.threshold.toFixed(1)}</td>
+                    <td class="input-cell"><div class="input-wrapper"><input type="number" id="threshold_${index}" step="0.1" min="5" max="50" value="${sensorConfig.threshold}"></div></td>
+                </tr>
+                <tr>
+                    <td>Activation Period (s)</td>
+                    <td id="currentActivationPeriod_${index}">${formatDuration(sensorConfig.activationPeriod, 'seconds')}</td>
+                    <td class="input-cell"><div class="input-wrapper"><input type="number" id="activationPeriod_${index}" step="1" min="1" max="60" value="${sensorConfig.activationPeriod / 1000}"></div></td>
+                </tr>
+                <tr>
+                    <td>Watering Interval (h)</td>
+                    <td id="currentWateringInterval_${index}">${formatDuration(sensorConfig.wateringInterval, 'hours')}</td>
+                    <td class="input-cell"><div class="input-wrapper"><input type="number" id="wateringInterval_${index}" step="1" min="1" max="120" value="${sensorConfig.wateringInterval / 3600000}"></div></td>
+                </tr>
+            </table>
         </div>
-        <table>
-            <tr>
-                <th>Setting</th>
-                <th>Current Value</th>
-                <th>New Value</th>
-            </tr>
-            <tr>
-                <td>Threshold</td>
-                <td id="currentThreshold_${index}">${sensorConfig ? sensorConfig.threshold.toFixed(1) : 'N/A'}</td>
-                <td class="input-cell"><div class="input-wrapper"><input type="number" id="threshold_${index}" step="0.1" min="5" max="50" value="${sensorConfig ? sensorConfig.threshold : ''}"></div></td>
-            </tr>
-            <tr>
-                <td>Activation Period (ms)</td>
-                <td id="currentActivationPeriod_${index}">${sensorConfig ? sensorConfig.activationPeriod : 'N/A'}</td>
-                <td class="input-cell"><div class="input-wrapper"><input type="number" id="activationPeriod_${index}" step="1" min="1" max="60" value="${sensorConfig ? sensorConfig.activationPeriod  / 1000: ''}"></div></td>
-            </tr>
-            <tr>
-                <td>Watering Interval (ms)</td>
-                <td id="currentWateringInterval_${index}">${sensorConfig ? sensorConfig.wateringInterval : 'N/A'}</td>
-                <td class="input-cell"><div class="input-wrapper"><input type="number" id="wateringInterval_${index}" step="1" min="1" max="120" value="${sensorConfig ? sensorConfig.wateringInterval / 3600000: ''}"></div></td>
-            </tr>
-            <tr>
-                <td>Sensor Pin</td>
-                <td id="currentSensorPin_${index}">${sensorConfig ? sensorConfig.sensorPin : 'N/A'}</td>
-                <td class="input-cell"><div class="input-wrapper"><input type="number" id="sensorPin_${index}" min="0" max="40" value="${sensorConfig ? sensorConfig.sensorPin : ''}"></div></td>
-            </tr>
-            <tr>
-                <td>Relay Pin</td>
-                <td id="currentRelayPin_${index}">${sensorConfig ? sensorConfig.relayPin : 'N/A'}</td>
-                <td class="input-cell"><div class="input-wrapper"><input type="number" id="relayPin_${index}" min="0" max="40" value="${sensorConfig ? sensorConfig.relayPin : ''}"></div></td>
-            </tr>
-        </table>
     `;
     return sensorDiv;
 }
@@ -139,8 +133,6 @@ function createAndPopulateSensorConfigs(config) {
                 wateringInterval: 0,
                 sensorEnabled: false,
                 relayEnabled: false,
-                sensorPin: 0,
-                relayPin: 0
             };
         }
         const sensorDiv = createSensorConfigHTML(sensorConfig, index);
@@ -156,11 +148,26 @@ function addChangeListeners() {
             if (input.type === 'checkbox' && input.id.startsWith('sensorEnabled_')) {
                 const index = input.id.split('_')[1];
                 const sensorDiv = document.querySelector(`.sensor-config:nth-child(${parseInt(index) + 1})`);
-                sensorDiv.classList.toggle('disabled', !input.checked);
+                const sensorDetails = sensorDiv.querySelector('.sensor-details');
+                const relayCheckbox = document.getElementById(`relayEnabled_${index}`);
+                
+                if (input.checked) {
+                    sensorDiv.classList.remove('disabled');
+                    sensorDetails.style.pointerEvents = 'auto';
+                    sensorDetails.style.opacity = '1';
+                    relayCheckbox.disabled = false;
+                } else {
+                    sensorDiv.classList.add('disabled');
+                    sensorDetails.style.pointerEvents = 'none';
+                    sensorDetails.style.opacity = '0.5';
+                    relayCheckbox.disabled = true;
+                    relayCheckbox.checked = false;
+                }
             }
         });
     });
 }
+
 
 function populateForm(config) {
     console.log('Populating form with config:', JSON.stringify(config, null, 2));
@@ -183,6 +190,8 @@ function formatDuration(ms, unit) {
     switch (unit) {
         case 'seconds':
             return `${(ms / 1000).toFixed(1)} seconds`;
+        case 'minutes':
+            return `${(ms / 60000).toFixed(1)} minutes`;
         case 'hours':
             return `${(ms / 3600000).toFixed(1)} hours`;
         default:
@@ -208,8 +217,6 @@ async function saveConfig() {
             wateringInterval: parseFloat(document.getElementById(`wateringInterval_${index}`).value) * 3600000,
             sensorEnabled: document.getElementById(`sensorEnabled_${index}`).checked,
             relayEnabled: document.getElementById(`relayEnabled_${index}`).checked,
-            sensorPin: parseInt(document.getElementById(`sensorPin_${index}`).value),
-            relayPin: parseInt(document.getElementById(`relayPin_${index}`).value)
         }))
     };
 

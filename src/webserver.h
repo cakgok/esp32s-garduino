@@ -54,6 +54,9 @@ private:
         server.addHandler(postRelayHandler);
         AsyncCallbackJsonWebHandler* postConfigHandler = new AsyncCallbackJsonWebHandler("/api/config", std::bind(&ESP32WebServer::handlePostConfig, this, std::placeholders::_1, std::placeholders::_2));
         server.addHandler(postConfigHandler);
+        AsyncCallbackJsonWebHandler* setupHandler = new AsyncCallbackJsonWebHandler("/api/setup", std::bind(&ESP32WebServer::handlePostSetup, this, std::placeholders::_1, std::placeholders::_2));
+        server.addHandler(setupHandler);
+
 
         // Catch-all handler for /api/ routes
         server.on("/api/", HTTP_ANY, [](AsyncWebServerRequest *request){
