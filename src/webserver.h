@@ -44,6 +44,7 @@ private:
         server.on("/api/sensorData", HTTP_GET, std::bind(&ESP32WebServer::handleGetSensorData, this, std::placeholders::_1));
         server.on("/api/resetToDefault", HTTP_GET, std::bind(&ESP32WebServer::handleResetToDefault, this, std::placeholders::_1));
         server.on("/api/setup", HTTP_GET, std::bind(&ESP32WebServer::handleGetSetup, this, std::placeholders::_1));
+        server.on("/api/resetSetup", HTTP_POST, std::bind(&ESP32WebServer::handlePostResetSetup, this, std::placeholders::_1));
 
         // Add SSE route
         events = new AsyncEventSource("/api/events");
@@ -196,7 +197,12 @@ private:
     }
 
     void handleResetToDefault(AsyncWebServerRequest *request) {
-        configManager.resetToDefault();
+        configManager.clearNvs();
+        request->send(200, "text/plain", "Configuration reset to default");
+    }
+
+    void handlePostResetSetup(AsyncWebServerRequest *request) {
+        configManager.clearNvs();
         request->send(200, "text/plain", "Configuration reset to default");
     }
       

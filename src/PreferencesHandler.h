@@ -1,6 +1,6 @@
  /**
  * @class PreferencesHandler
- * @brief Handles low-level operations for storing and retrieving preferences.
+ * @brief Handles low-level operations for storing and retrieving preferences->
  * 
  * @warning This class is not thread-safe on its own. It is designed to be used
  * exclusively through the ConfigManager class, which provides the necessary
@@ -14,10 +14,15 @@
 #include "ESPLogger.h"
 #include <cstring>
 #include "ConfigTypes.h"
+#include <nvs_flash.h>
 
 class PreferencesHandler {
 public:
-    PreferencesHandler() : logger(Logger::instance()) {}
+    PreferencesHandler() : logger(Logger::instance()), preferences(nullptr) {}
+    void setPreferences(Preferences* prefs) {
+        preferences = prefs;
+    }
+
     /**
      * @brief Get the preference key for a given ConfigKey
      * 
@@ -52,21 +57,38 @@ public:
      * @warning When adding new types, ensure to update this function to handle them correctly.
      */
     template<typename T>
-    void saveToPreferences(ConfigKey key, const T& value, size_t sensorIndex) {
+    bool saveToPreferences(ConfigKey key, const T& value, size_t sensorIndex) {
+
+        if (preferences == nullptr) {
+            logger.log("PreferencesHandler", LogLevel::ERROR, "Preferences not initialized");
+            return false;
+        }
+
+        Logger::instance().log("PreferencesHandler", LogLevel::DEBUG, "Attempting to save key: %d, sensorIndex: %d", static_cast<int>(key), sensorIndex);
+        
+        std::string prefKey = getPrefKey(key, sensorIndex);
+        Logger::instance().log("PreferencesHandler", LogLevel::DEBUG, "Generated preference key: %s", prefKey.c_str());
+
+        bool result = false;
         if constexpr (std::is_same_v<T, int>) {
-            preferences.putInt(getPrefKey(key, sensorIndex).c_str(), value);
+            result = preferences->putInt(prefKey.c_str(), value);
         } else if constexpr (std::is_same_v<T, float>) {
-            preferences.putFloat(getPrefKey(key, sensorIndex).c_str(), value);
+            result = preferences->putFloat(prefKey.c_str(), value);
         } else if constexpr (std::is_same_v<T, bool>) {
-            preferences.putBool(getPrefKey(key, sensorIndex).c_str(), value);
+            result = preferences->putBool(prefKey.c_str(), value);
         } else if constexpr (std::is_same_v<T, std::vector<int>>) {
-            saveVectorToPreferences(key, value, sensorIndex);
+            result = saveVectorToPreferences(key, value, sensorIndex);
         } else if constexpr (std::is_same_v<T, std::vector<bool>>) {
-            saveBoolVectorToPreferences(key, value, sensorIndex);
-        } else if constexpr (std::is_same_v<T, std::vector<int64_t>>) {
-            saveVectorToPreferences(key, value, sensorIndex);
+            result = saveBoolVectorToPreferences(key, value, sensorIndex);
         }
         // Add more type handlers here as needed
+
+        if (result) {
+            Logger::instance().log("PreferencesHandler", LogLevel::INFO, "Successfully saved key: %s:", prefKey.c_str());
+        } else {
+            Logger::instance().log("PreferencesHandler", LogLevel::ERROR, "Failed to save key: %s:", prefKey.c_str());
+        }
+        return result;
     }
 
     /**
@@ -77,17 +99,21 @@ public:
      * @param value The vector to save
      * @param sensorIndex The index of the sensor
      * 
-     * @note This function serializes the vector into a byte array and stores it in preferences.
+     * @note This function serializes the vector into a byte array and stores it in preferences->
      * It also stores the size of the vector separately to allow for correct retrieval later.
      * 
      * @warning This method assumes that the vector elements are trivially copyable. 
      * It may not work correctly for complex types that require deep copying.
      */
     template<typename T>
-    void saveVectorToPreferences(ConfigKey key, const std::vector<T>& value, size_t sensorIndex) {
-        preferences.putBytes(getPrefKey(key, sensorIndex).c_str(), value.data(), value.size() * sizeof(T));
-        preferences.putUInt((getPrefKey(key, sensorIndex) + "_size").c_str(), value.size());
+    bool saveVectorToPreferences(ConfigKey key, const std::vector<T>& value, size_t sensorIndex) {
+            // Store the actual vector data
+        bool bytesSuccess = preferences->putBytes(getPrefKey(key, sensorIndex).c_str(), value.data(), value.size() * sizeof(T));
+            // Store the number of elements in the vector
+        bool sizeSuccess = preferences->putUInt((getPrefKey(key, sensorIndex) + "_size").c_str(), value.size());
+        return bytesSuccess && sizeSuccess;
     }
+
 
     /**
      * @brief Save a vector of booleans to preferences
@@ -103,16 +129,18 @@ public:
      * @warning The size of the stored data is in bytes, not the number of booleans.
      * When retrieving, you'll need to expand this back into individual boolean values.
      */
-    void saveBoolVectorToPreferences(ConfigKey key, const std::vector<bool>& value, size_t sensorIndex) {
+    bool saveBoolVectorToPreferences(ConfigKey key, const std::vector<bool>& value, size_t sensorIndex) {
         std::vector<uint8_t> buffer((value.size() + 7) / 8);
         for (size_t i = 0; i < value.size(); ++i) {
             if (value[i]) {
                 buffer[i / 8] |= (1 << (i % 8));
             }
         }
-        preferences.putBytes(getPrefKey(key, sensorIndex).c_str(), buffer.data(), buffer.size());
-        preferences.putUInt((getPrefKey(key, sensorIndex) + "_size").c_str(), buffer.size());
+        bool bytesSuccess = preferences->putBytes(getPrefKey(key, sensorIndex).c_str(), buffer.data(), buffer.size());
+        bool sizeSuccess = preferences->putUInt((getPrefKey(key, sensorIndex) + "_size").c_str(), value.size());
+        return bytesSuccess && sizeSuccess;
     }
+
 
     /**
      * @brief Load a value from preferences
@@ -132,11 +160,11 @@ public:
     template<typename T>
     T loadFromPreferences(ConfigKey key, const T& defaultValue, size_t sensorIndex) {
         if constexpr (std::is_same_v<T, int> || std::is_same_v<T, unsigned int>) {
-            return preferences.getInt(getPrefKey(key, sensorIndex).c_str(), defaultValue);
+            return preferences->getInt(getPrefKey(key, sensorIndex).c_str(), defaultValue);
         } else if constexpr (std::is_same_v<T, float>) {
-            return preferences.getFloat(getPrefKey(key, sensorIndex).c_str(), defaultValue);
+            return preferences->getFloat(getPrefKey(key, sensorIndex).c_str(), defaultValue);
         } else if constexpr (std::is_same_v<T, bool>) {
-            return preferences.getBool(getPrefKey(key, sensorIndex).c_str(), defaultValue);
+            return preferences->getBool(getPrefKey(key, sensorIndex).c_str(), defaultValue);
         } else if constexpr (std::is_same_v<T, std::vector<int>>) {
             return loadVectorFromPreferences(key, defaultValue, sensorIndex);
         } else if constexpr (std::is_same_v<T, std::vector<bool>>) {
@@ -167,10 +195,10 @@ public:
     template<typename T>
     std::vector<T> loadVectorFromPreferences(ConfigKey key, const std::vector<T>& defaultValue, size_t sensorIndex) {
         std::vector<T> vec;
-        size_t size = preferences.getUInt((getPrefKey(key, sensorIndex) + "_size").c_str(), 0);
+        size_t size = preferences->getUInt((getPrefKey(key, sensorIndex) + "_size").c_str(), 0);
         if (size > 0) {
             vec.resize(size);
-            preferences.getBytes(getPrefKey(key, sensorIndex).c_str(), vec.data(), size * sizeof(T));
+            preferences->getBytes(getPrefKey(key, sensorIndex).c_str(), vec.data(), size * sizeof(T));
         } else {
             vec = defaultValue;
         }
@@ -195,10 +223,15 @@ public:
      */
     std::vector<bool> loadBoolVectorFromPreferences(ConfigKey key, const std::vector<bool>& defaultValue, size_t sensorIndex) {
         std::vector<bool> vec;
-        size_t size = preferences.getBytes((getPrefKey(key, sensorIndex) + "_size").c_str(), nullptr, 0);
+
+        /** FIX ME
+        *   @warning getPrefkey+size gives the wrong key value
+        *            for sure size should be a single key, and we should grab the pref keys accordingly.
+        */          
+        size_t size = preferences->getBytes((getPrefKey(key, sensorIndex) + "_size").c_str(), nullptr, 0);
         if (size > 0) {
             std::vector<uint8_t> rawData(size);
-            preferences.getBytes(getPrefKey(key, sensorIndex).c_str(), rawData.data(), size);
+            preferences->getBytes(getPrefKey(key, sensorIndex).c_str(), rawData.data(), size);
             vec.reserve(size * 8);
             for (uint8_t byte : rawData) {
                 for (int j = 0; j < 8; ++j) {
@@ -212,12 +245,25 @@ public:
     }
 
     void removeFromPreferences(ConfigKey key, size_t sensorIndex) {
-        preferences.remove(getPrefKey(key, sensorIndex).c_str());
-        preferences.remove((getPrefKey(key, sensorIndex) + "_size").c_str());
+        preferences->remove(getPrefKey(key, sensorIndex).c_str());
+        preferences->remove((getPrefKey(key, sensorIndex) + "_size").c_str());
+    }
+
+    bool checkNVSSpace() {
+        nvs_stats_t nvs_stats;
+        esp_err_t err = nvs_get_stats(NULL, &nvs_stats);
+        if (err == ESP_OK) {
+            logger.log("ConfigManager", LogLevel::INFO, "NVS: Used entries = %d, Free entries = %d, Total entries = %d",
+                    nvs_stats.used_entries, nvs_stats.free_entries, nvs_stats.total_entries);
+            return (nvs_stats.free_entries > 0);
+        } else {
+            logger.log("ConfigManager", LogLevel::ERROR, "Failed to get NVS statistics");
+            return false;
+        }
     }
 
 private:
     Logger& logger;
-    Preferences preferences;
+    Preferences* preferences;
 };
 #endif // PREFERENCES_HANDLER_H

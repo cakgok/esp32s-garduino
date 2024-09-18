@@ -49,7 +49,7 @@ void SensorManager::setupFloatSwitch() {
 void SensorManager::setupSensors() {
     const auto& hwConfig = configManager.getHwConfig();
     Wire.begin(hwConfig.sdaPin.value(), hwConfig.sclPin.value());
-    logger.log("SensorManager", LogLevel::INFO, "I2C initialized on SDA: %d, SCL: %d", hwConfig.sdaPin, hwConfig.sclPin);
+    logger.log("SensorManager", LogLevel::INFO, "I2C initialized on SDA: %d, SCL: %d", hwConfig.sdaPin.value(), hwConfig.sclPin.value());
 
     if (!bmp.begin()) {
         logger.log("SensorManager", LogLevel::ERROR, "Could not find a valid BMP085 sensor, check wiring!");
@@ -101,17 +101,16 @@ float SensorManager::readMoistureSensor(int sensorPin) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
     float average = sum / SAMPLES;
-    float moisturePercentage = map(average, 0, 4095, 0, 100);
+    // change the map function to match your sensor's range
+    float moisturePercentage = map(average, 2592, 975, 0, 100);
     logger.log("SensorManager", LogLevel::DEBUG, "Moisture sensor on pin %d read: %.2f%%", sensorPin, moisturePercentage);
     return moisturePercentage;
 }
 
 bool SensorManager::checkWaterLevel() {
-    digitalWrite(floatSwitchPin, HIGH);
-    vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(pdMS_TO_TICKS(10));  // Delay for switch debounce if needed
     bool waterLevel = digitalRead(floatSwitchPin);
-    digitalWrite(floatSwitchPin, LOW);
-    logger.log("SensorManager", LogLevel::DEBUG, "Water level check: %s", waterLevel ? "OK" : "Low");
+    logger.log("SensorManager", LogLevel::DEBUG, "Water level check: %s", waterLevel ? "Low" : "OK");
     return waterLevel;
 }
 

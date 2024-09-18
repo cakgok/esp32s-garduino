@@ -1,7 +1,6 @@
 #ifndef CONFIG_MANAGER_H
 #define CONFIG_MANAGER_H
 
-#include <Preferences.h>
 #include <map>
 #include <string>
 #include <functional>
@@ -27,35 +26,53 @@ public:
     // @initializeDefaultsValues is called to fill the pref. library with defaults, only for the first run
     // @initializeConfigurations is called to fill the runtime cache so that other classes can access it.
     bool begin(const char* name = "cf") {
-        bool result = preferences.begin(name, false);
-        if (result) {
-            size_t storedSize = getValue<int>(ConfigKey::SYSTEM_SIZE, 0);
-            size_t currentSize = std::get<int>(configMap.at(ConfigKey::SYSTEM_SIZE).defaultValue);
-
-            if (!preferences.isKey("initialized")) {
-                logger.log("ConfigManager", LogLevel::INFO, "First run, initializing default values");
-                initializeDefaultValues(currentSize);
-                preferences.putBool("initialized", true);
-            } else if (currentSize > storedSize) {
-                logger.log("ConfigManager", LogLevel::INFO, "System size increased, initializing new sensors");
-                initializeNewSensors(storedSize, currentSize);
-            }
-
-            prefsHandler.saveToPreferences(ConfigKey::SYSTEM_SIZE, currentSize, 0);
+        logger.log("ConfigManager", LogLevel::INFO, "Beginning ConfigManager with namespace: %s", name);
+        
+        if (!preferences.begin(name, false)) {
+            logger.log("ConfigManager", LogLevel::ERROR, "Failed to begin Preferences");
+            return false;
         }
 
+        prefsHandler.setPreferences(&preferences);  // Set the Preferences instance
+        logger.log("ConfigManager", LogLevel::INFO, "Preferences begun successfully");
+
+        // Calculate the system size
+        size_t systemSize = getValue<int>(ConfigKey::SYSTEM_SIZE, 0);
+
+        // Initialize or load configurations
+        for (const auto& [key, info] : configMap) {
+            if (info.confType != "sensorConf") {
+                // Global configurations
+                if (!preferences.isKey(prefsHandler.getPrefKey(key).c_str())) {
+                    // Key doesn't exist, initialize from default
+                    std::visit([this, key](auto&& arg) {
+                        using T = std::decay_t<decltype(arg)>;
+                        prefsHandler.saveToPreferences(key, arg, 0);
+                    }, info.defaultValue);
+                    logger.log("ConfigManager", LogLevel::INFO, "Initialized global key: %s", info.confKey.c_str());
+                }
+            } else {
+                // Sensor-specific configurations
+                for (size_t i = 0; i < systemSize; ++i) {
+                    if (!preferences.isKey(prefsHandler.getPrefKey(key, i).c_str())) {
+                        // Key doesn't exist for this sensor, initialize from default
+                        std::visit([this, key, i](auto&& arg) {
+                            using T = std::decay_t<decltype(arg)>;
+                            prefsHandler.saveToPreferences(key, arg, i);
+                        }, info.defaultValue);
+                        logger.log("ConfigManager", LogLevel::INFO, "Initialized sensor key: %s for sensor %d", info.confKey.c_str(), i);
+                    }
+                }
+            }
+        }
         initializeConfigurations();
-        return result;
+        return true;
     }
+
     
     void initializeConfigurations() {
 
-        size_t oldSystemSize = sensorConf.size();
         size_t newSystemSize = getValue<int>(ConfigKey::SYSTEM_SIZE, 0);
-
-        if (newSystemSize < oldSystemSize) {
-            cleanupRemovedSensors(newSystemSize, oldSystemSize);
-        }
 
         createHardwareConfig(newSystemSize);
         createSoftwareConfig();
@@ -126,12 +143,19 @@ public:
 
         return changed;
     }
-    void resetToDefault() {}
+    
+    void clearNvs() {
+        logger.log("Main", LogLevel::INFO, "Clearing NVS...");
+        nvs_flash_erase();
+        nvs_flash_init();
+        logger.log("Main", LogLevel::INFO, "NVS cleared");
+        ESP.restart();
+    }
 
 private:
     Preferences preferences;
     PreferencesHandler& prefsHandler;
-    Logger& logger;
+    Logger& logger = Logger::instance();
     mutable std::shared_mutex mutex;
     
     ConfigTypes::HardwareConfig hwConf;
@@ -236,11 +260,16 @@ private:
     void initializeDefaultValues(size_t systemSize) {
         logger.log("ConfigManager", LogLevel::INFO, "Initializing default values");
         for (const auto& [key, info] : configMap) {
+            logger.log("ConfigManager", LogLevel::DEBUG, "Initializing key: %d", static_cast<int>(key));
             std::visit([this, key, &info](auto&& arg) {
                 using T = std::decay_t<decltype(arg)>;
-                if constexpr (std::is_same_v<T, int> || std::is_same_v<T, float> || 
-                            std::is_same_v<T, bool> || std::is_same_v<T, uint32_t> ||
+                if constexpr (
+                            std::is_same_v<T, int> || 
+                            std::is_same_v<T, float> || 
+                            std::is_same_v<T, bool> || 
+                            std::is_same_v<T, uint32_t> ||
                             std::is_same_v<T, std::vector<int>>) {
+                    logger.log("ConfigManager", LogLevel::DEBUG, "Saving key: %d", static_cast<int>(key));
                     prefsHandler.saveToPreferences(key, arg, 0);  // Use index 0 for global configs
                 }
             }, info.defaultValue);
@@ -248,10 +277,12 @@ private:
 
         // For sensor-specific configurations, we need to initialize for each sensor
         for (size_t i = 0; i < systemSize; ++i) {
+            logger.log("ConfigManager", LogLevel::DEBUG, "Initializing sensor %d", i);
             for (const auto& [key, info] : configMap) {
                 if (info.confType == "sensorConf") {
+                    logger.log("ConfigManager", LogLevel::DEBUG, "Initializing sensor key: %d", static_cast<int>(key));
                     std::visit([this, key, i](auto&& arg) {
-                        using T = std::decay_t<decltype(arg)>;
+                        logger.log("ConfigManager", LogLevel::DEBUG, "Saving sensor key: %d", static_cast<int>(key));
                         prefsHandler.saveToPreferences(key, arg, i);
                     }, info.defaultValue);
                 }
@@ -307,6 +338,8 @@ private:
             }
         }
     }
+
+  
 };
 
 #endif // CONFIG_MANAGER_H

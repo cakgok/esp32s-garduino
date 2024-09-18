@@ -97,6 +97,7 @@ public:
             updateHardwareConfig(hwConfig, doc);
             configManager.setHardwareConfig(hwConfig);
         }
+        ESP.restart();
         return true;
     }
 

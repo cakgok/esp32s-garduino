@@ -1,16 +1,30 @@
+// WebSocket connection
 let socket;
+let reconnectAttempts = 0;
+let maxReconnectAttempts = 5;
 let reconnectInterval = 5000; // 5 seconds
 let pingInterval;
 let pongTimeout;
-let isClosing = false; // Flag to prevent reconnection attempts during intentional closes
+let connectionId = generateUniqueId(); // Implement this function to generate a unique ID
+
+function generateUniqueId() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
 
 function connectWebSocket() {
-    if (isClosing) return; // Don't attempt to reconnect if we're intentionally closing
+    if (socket && (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)) {
+        console.log('WebSocket is already connecting or open');
+        return;
+    }
 
-    socket = new WebSocket('ws://' + location.hostname + ':80/ws');
+    socket = new WebSocket(`ws://${location.hostname}:80/ws?id=${connectionId}`);
 
     socket.onopen = function(e) {
         console.log('Connected to WebSocket');
+        reconnectAttempts = 0;
         startPingInterval();
     };
 
@@ -29,8 +43,12 @@ function connectWebSocket() {
     socket.onclose = function(event) {
         console.log('WebSocket connection closed: ', event);
         clearInterval(pingInterval);
-        if (!isClosing) {
-            setTimeout(connectWebSocket, reconnectInterval);
+        if (reconnectAttempts < maxReconnectAttempts) {
+            let delay = Math.min(30000, (reconnectAttempts + 1) * reconnectInterval);
+            setTimeout(connectWebSocket, delay);
+            reconnectAttempts++;
+        } else {
+            console.log('Max reconnection attempts reached');
         }
     };
 
@@ -39,17 +57,8 @@ function connectWebSocket() {
     };
 }
 
-function closeWebSocket() {
-    isClosing = true;
-    if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.close();
-    }
-    clearInterval(pingInterval);
-    clearTimeout(pongTimeout);
-}
-
-
 function startPingInterval() {
+    clearInterval(pingInterval); // Clear any existing interval
     pingInterval = setInterval(() => {
         if (socket.readyState === WebSocket.OPEN) {
             sendPing();
@@ -67,13 +76,30 @@ function sendPong() {
 }
 
 function setPongTimeout() {
+    clearTimeout(pongTimeout); // Clear any existing timeout
     pongTimeout = setTimeout(() => {
         console.log('Pong not received, closing connection');
         socket.close();
     }, 5000); // Wait 5 seconds for pong before closing
 }
 
-//stream new logs throught the ws
+function handleVisibilityChange() {
+    if (document.hidden) {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: 'pause' }));
+            clearInterval(pingInterval);
+        }
+    } else {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: 'resume' }));
+            startPingInterval();
+        } else {
+            connectWebSocket();
+        }
+    }
+}
+
+// Function to add log entries (unchanged from your original code)
 function addLogEntry(log) {
     const logContainer = document.getElementById('log-container');
     const logEntry = document.createElement('div');
@@ -84,21 +110,19 @@ function addLogEntry(log) {
     // Scroll to the bottom of the container
     logContainer.scrollTop = logContainer.scrollHeight;
 }
-// Start the WebSocket connection
-connectWebSocket();
 
-// Handle page unload
-window.addEventListener('beforeunload', closeWebSocket);
-// Handle page visibility change
-document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-        closeWebSocket();
-    } else {
-        isClosing = false;
-        connectWebSocket();
+// Function to get level string (unchanged from your original code)
+function getLevelString(level) {
+    switch(level) {
+        case 0: return "DEBUG";
+        case 1: return "INFO";
+        case 2: return "WARNING";
+        case 3: return "ERROR";
+        default: return "UNKNOWN";
     }
-});
+}
 
+// Function to fetch logs (unchanged from your original code)
 async function fetchLogs() {
     const logContainer = document.getElementById('log-container');
     logContainer.innerHTML = ''; // Clear existing logs
@@ -125,14 +149,7 @@ async function fetchLogs() {
         do {
             log = await fetchSingleLog();
             if (log) {
-                const logEntry = document.createElement('div');
-                logEntry.className = `log-entry log-level-${log.level}`;
-                const levelString = getLevelString(log.level);
-                logEntry.textContent = `[${log.tag}] ${levelString}: ${log.message}`;
-                logContainer.appendChild(logEntry);
-                
-                // Scroll to the bottom of the container
-                logContainer.scrollTop = logContainer.scrollHeight;
+                addLogEntry(log);
             }
         } while (log);
     }
@@ -140,18 +157,28 @@ async function fetchLogs() {
     await fetchAndDisplayLogs();
 }
 
-function getLevelString(level) {
-    switch(level) {
-        case 0: return "DEBUG";
-        case 1: return "INFO";
-        case 2: return "WARNING";
-        case 3: return "ERROR";
-        default: return "UNKNOWN";
+// Initialize WebSocket connection and set up event listeners
+document.addEventListener('DOMContentLoaded', () => {
+    fetchLogs(); // Initial fetch
+    connectWebSocket(); // Initial WebSocket connection
+});
+
+function pauseWebSocket() {
+    if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'pause' }));
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    fetchLogs(); // Initial fetch
-    //setInterval(fetchLogs, 10000); // Fetch logs every 10 seconds -- nope, websocket handles it
-});
+function resumeWebSocket() {
+    if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'resume' }));
+    }
+}
 
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        pauseWebSocket();
+    } else {
+        resumeWebSocket();
+    }
+});

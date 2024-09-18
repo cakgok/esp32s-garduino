@@ -50,7 +50,7 @@ private:
             JsonDocument doc;
             
             const auto& hwConf = configManager.getHwConfig();
-            for (size_t i = 0; i < hwConf.moistureSensorPins.size(); ++i) {
+            for (size_t i = 0; i < hwConf.systemSize.value(); i++) {
                 const auto& config = configManager.getSensorConfig(i);
                 if (config.sensorEnabled) {
                     doc["moisture_" + String(i)] = data.moisture[i];

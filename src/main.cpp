@@ -1,9 +1,6 @@
-#define ENABLE_SERIAL_PRINT
-
 #include <Wire.h>
 #include <Adafruit_BMP085.h>
 #include <LiquidCrystal_I2C.h>
-#include <Preferences.h>
 #include <WiFi.h>
 #include <SPI.h>
 #include <freertos/FreeRTOS.h>
@@ -19,6 +16,7 @@
 #include "RelayManager.h"
 #include "globals.h"
 #include "PreferencesHandler.h"
+#include "nvs_flash.h"  // Add this line
 
 const ESPMQTTManager::Config mqttConfig = {
     .server = MQTT_SERVER,
@@ -42,7 +40,7 @@ Adafruit_BMP085 bmp;
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 WiFiClientSecure espClient;
 PubSubClient mqttClient(espClient);
-PreferencesHandler prefsHandler;
+PreferencesHandler* prefsHandler = nullptr;
 ConfigManager* configManager = nullptr;
 SensorManager* sensorManager = nullptr;
 RelayManager* relayManager = nullptr;
@@ -65,7 +63,8 @@ void setup() {
   wifi.begin();
   wifi.setupMDNS("plant-friend");
 
-  configManager = new ConfigManager(prefsHandler);
+  prefsHandler = new PreferencesHandler();
+  configManager = new ConfigManager(*prefsHandler);
   configManager->begin("cfg");
   configManager->initializeConfigurations();
 
@@ -108,4 +107,3 @@ void setup() {
 }
 
 void loop() {}
-

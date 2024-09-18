@@ -129,7 +129,7 @@ async function saveConfig(event) {
 async function resetToDefaultConfig() {
     if (confirm('Are you sure you want to reset to default settings? This action cannot be undone.')) {
         try {
-            const response = await fetch('/api/resetToDefault', {
+            const response = await fetch('/api/resetSetup', {
                 method: 'POST',
             });
             if (!response.ok) {

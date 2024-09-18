@@ -84,6 +84,11 @@ public:
         : lcd(lcd), sensorManager(sm), configManager(cm), taskHandle(NULL), currentDisplay(0) {}
 
     void start() {
+        lcd.init();
+        lcd.backlight();
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("Initializing...");
         xTaskCreate(
             taskFunction,
             "LCDUpdateTask",
