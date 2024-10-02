@@ -16,7 +16,7 @@
 #include "RelayManager.h"
 #include "globals.h"
 #include "PreferencesHandler.h"
-#include "nvs_flash.h"  // Add this line
+#include "nvs_flash.h" 
 
 const ESPMQTTManager::Config mqttConfig = {
     .server = MQTT_SERVER,
@@ -38,8 +38,6 @@ OTAManager otaManager;
 
 Adafruit_BMP085 bmp;
 LiquidCrystal_I2C lcd(0x27, 16, 2);
-WiFiClientSecure espClient;
-PubSubClient mqttClient(espClient);
 PreferencesHandler* prefsHandler = nullptr;
 ConfigManager* configManager = nullptr;
 SensorManager* sensorManager = nullptr;
